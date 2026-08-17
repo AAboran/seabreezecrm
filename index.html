@@ -3711,9 +3711,9 @@ function aiSuggestions(){
   ];
 }
 function myManual(){
-  if(isAdmin())return {href:"manuals/administrator-manual.pdf",label:"Administrator manual"};
-  if(isStaff())return {href:"manuals/office-worker-manual.pdf",label:"Office worker manual"};
-  return {href:"manuals/partner-manual.pdf",label:"Partner manual"};
+  if(isAdmin())return {href:"administrator-manual.pdf",label:"Administrator manual"};
+  if(isStaff())return {href:"office-worker-manual.pdf",label:"Office worker manual"};
+  return {href:"partner-manual.pdf",label:"Partner manual"};
 }
 function rAssistant(){
   const m=myManual();
@@ -3726,7 +3726,7 @@ function rAssistant(){
         <p>A plain-language guide to every screen and task for your account — keep it to hand and refer back any time.</p>
         <div class="man-links">
           <a class="btn gold sm" href="${m.href}" target="_blank" rel="noopener">Download the ${m.label} (PDF)</a>
-          ${isAdmin()?`<span class="man-extra">Manuals for your team: <a href="manuals/office-worker-manual.pdf" target="_blank" rel="noopener">Office worker</a> · <a href="manuals/partner-manual.pdf" target="_blank" rel="noopener">Partner</a></span>`:""}
+          ${isAdmin()?`<span class="man-extra">Manuals for your team: <a href="office-worker-manual.pdf" target="_blank" rel="noopener">Office worker</a> · <a href="partner-manual.pdf" target="_blank" rel="noopener">Partner</a></span>`:""}
         </div>
       </div>
     </div>
