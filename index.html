@@ -3745,7 +3745,11 @@ function rAssistant(){
       <textarea id="ai-text" rows="2" placeholder="Type your question and press Enter…" onkeydown="aiKey(event)"></textarea>
       <button class="btn gold" id="ai-send" onclick="aiSendFromBox()">Send</button>
     </div>
-    <p style="font-size:11px;color:var(--ink-soft);margin-top:8px">${AI_CHAT.length?`<button class="btn ghost sm" onclick="aiClear()">Clear conversation</button>`:""}</p>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="aiCheck()">Not responding? Run a connection check</button>
+      ${AI_CHAT.length?`<button class="btn ghost sm" onclick="aiClear()">Clear conversation</button>`:""}
+      <span style="color:var(--hair)">·</span><span style="opacity:.7">assistant build 2</span>
+    </p>
   </div>`;
 }
 function renderAILog(){
@@ -3804,6 +3808,31 @@ function aiNotConfigured(){
   return (isAdmin()
     ? "The AI assistant is not switched on yet.\n\nTo enable it, an administrator adds the AI key in the hosting settings (in Vercel: Project → Settings → Environment Variables → add **ANTHROPIC_API_KEY**), then redeploys. Full steps are in the user manual under **Setting up the assistant**."
     : "The AI assistant is not switched on yet. Please ask your administrator to add the AI key so this feature starts working.");
+}
+function aiCheck(){
+  if(AI_BUSY)return;
+  AI_BUSY=true;
+  AI_CHAT.push({role:"assistant",content:"Running a quick connection check…"});
+  aiSave();renderAILog();
+  fetch("/api/assistant",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({messages:[{role:"user",content:"ping"}]})})
+    .then(async r=>{const t=await r.text();let d=null;try{d=JSON.parse(t)}catch(e){}return {status:r.status,d};})
+    .then(({status,d})=>{
+      AI_BUSY=false;AI_CHAT.pop();
+      let msg;
+      if(d&&d.reply) msg="**All good.** The assistant service is deployed and the AI key is working. Ask your question normally.";
+      else if(d&&d.error==="not_configured") msg="**The service is deployed, but no AI key is set.**\n\nAdd a variable named ANTHROPIC_API_KEY in Vercel (Project → Settings → Environment Variables), then redeploy.";
+      else if(d&&d.error==="api_error") msg="**The service is deployed and a key is set, but the AI provider rejected the request.**"+(d.detail?`\n\nDetail: ${d.detail}`:"")+"\n\nThis is almost always billing — add credit to the Anthropic account at console.anthropic.com under Billing — or the key is wrong. Fix that and try again.";
+      else if(status===404) msg="**The assistant service is not deployed (404).** The api folder didn't make it into your site.\n\nMake sure the api folder (with assistant.js inside) sits at the top level of your repository, commit it, and redeploy.";
+      else msg=`**Unexpected response (HTTP ${status}).** The function may have failed to start. Redeploy the latest version and run this check again.`;
+      AI_CHAT.push({role:"assistant",content:msg});
+      aiSave();renderAILog();
+    })
+    .catch(()=>{
+      AI_BUSY=false;AI_CHAT.pop();
+      AI_CHAT.push({role:"assistant",content:"**Couldn't reach the service at all.**\n\nIf you are viewing the site online, the assistant function isn't deployed yet — upload the api folder and redeploy. If you opened the file directly on your computer, the assistant only works on the deployed Vercel site."});
+      aiSave();renderAILog();
+    });
+  renderAILog();
 }
 function aiClear(){if(!confirm("Clear this conversation?"))return;AI_CHAT=[];aiSave();render();}
 
