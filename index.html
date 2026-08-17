@@ -473,6 +473,46 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
 .doc-x{transition:background .12s ease,color .12s ease}
 .doc-x:hover{background:rgba(160,38,38,.1);color:var(--bad)}
 
+/* ===== AI assistant ===== */
+.ai-wrap{max-width:860px}
+.man-card{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--gold);background:rgba(194,162,87,.08);padding:15px 18px;margin-bottom:16px;border-radius:3px}
+.man-ico{flex-shrink:0;width:34px;height:34px;display:flex;align-items:center;justify-content:center}
+.man-ico svg{width:22px;height:22px;stroke:var(--gold);fill:none;stroke-width:1.6}
+.man-body b{color:var(--navy);font-size:14px}
+.man-body p{margin:2px 0 9px;font-size:12px;color:var(--ink-soft);max-width:600px}
+.man-links{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.man-extra{font-size:11.5px;color:var(--ink-soft)}
+.man-extra a{color:var(--navy);text-decoration:underline}
+.side-manual{display:block;color:var(--gold);font-size:11.5px;text-decoration:none;margin:2px 0 9px;border-bottom:1px solid transparent}
+.side-manual:hover{border-bottom-color:var(--gold)}
+.ai-intro{display:flex;gap:15px;align-items:flex-start;background:linear-gradient(135deg,var(--navy),#12314a);color:var(--ivory);padding:18px 20px;margin-bottom:16px}
+.ai-mark{width:42px;height:42px;flex-shrink:0;border:1px solid rgba(194,162,87,.5);border-radius:50%;display:flex;align-items:center;justify-content:center}
+.ai-mark svg{width:22px;height:22px;stroke:var(--gold);fill:none;stroke-width:1.6}
+.ai-log{min-height:230px;max-height:52vh;overflow-y:auto;background:#fff;border:1px solid var(--hair);padding:16px;display:flex;flex-direction:column;gap:14px}
+.ai-empty{margin:auto;text-align:center;color:var(--ink-soft);font-size:13px;max-width:360px;line-height:1.6}
+.ai-msg{display:flex;gap:11px;align-items:flex-start}
+.ai-msg.user{flex-direction:row-reverse}
+.ai-avatar{flex-shrink:0;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;letter-spacing:.03em}
+.ai-msg.assistant .ai-avatar{background:var(--navy);color:#fff}
+.ai-msg.assistant .ai-avatar svg{width:19px;height:19px;stroke:var(--gold);fill:none;stroke-width:1.6}
+.ai-msg.user .ai-avatar{background:var(--gold);color:var(--navy)}
+.ai-bubble{padding:11px 15px;border-radius:3px;font-size:13.5px;line-height:1.62;max-width:78%}
+.ai-msg.assistant .ai-bubble{background:var(--paper);border:1px solid var(--hair);color:var(--ink)}
+.ai-msg.user .ai-bubble{background:var(--navy);color:var(--ivory)}
+.ai-bubble p{margin:0 0 8px}.ai-bubble p:last-child{margin:0}
+.ai-bubble ol,.ai-bubble ul{margin:6px 0 8px;padding-left:20px}.ai-bubble li{margin:3px 0}
+.ai-bubble b{color:inherit}
+.ai-msg.assistant .ai-bubble b{color:var(--navy)}
+.ai-typing{display:flex;gap:5px;align-items:center;padding:14px 15px}
+.ai-typing span{width:7px;height:7px;border-radius:50%;background:var(--gold);opacity:.4;animation:aiblink 1.2s infinite}
+.ai-typing span:nth-child(2){animation-delay:.2s}.ai-typing span:nth-child(3){animation-delay:.4s}
+@keyframes aiblink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.ai-suggest{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ai-chip{background:#fff;border:1px solid var(--hair);color:var(--navy);font-size:12px;padding:7px 12px;border-radius:20px;cursor:pointer;transition:border-color .14s,background .14s}
+.ai-chip:hover{border-color:var(--gold);background:rgba(194,162,87,.08)}
+.ai-input{display:flex;gap:10px;margin-top:12px;align-items:flex-end}
+.ai-input textarea{flex:1;resize:vertical;min-height:46px;font-family:inherit}
+.ai-input .btn{height:46px;padding:0 22px}
 </style>
 </head>
 <body>
@@ -507,6 +547,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
     <div class="side-user">
       <div class="nm" id="su-name"></div>
       <div class="co" id="su-co"></div>
+      <a class="side-manual" id="su-manual" href="#" target="_blank" rel="noopener">Download user manual (PDF)</a>
       <button onclick="doLogout()">Sign out</button>
     </div>
   </aside>
@@ -597,135 +638,22 @@ const DEMO_FILE="data:text/plain;base64,"+btoa("Boran&Co CRM - demonstration pla
 
 /* ---------- seed ---------- */
 function seed(){
-  const now=Date.now();
-  const db={
+  return {
     settings:{retentionPct:10,splitPct:50},
     messages:[],
     archive:[],
-    partners:[
-      {id:"P1",name:"INVEREST s. r. o.",legalName:"INVEREST s. r. o.",city:"Bratislava",country:"Slovakia",
-       address:"Vajnorská 100/A, 831 04 Bratislava — Nové Mesto, Slovak Republic",
-       ico:"57276129",dico:"2121678455",vat:"—  (not VAT registered)",
-       iban:"SK00 0000 0000 0000 0000 0000",bank:"—",email:"info@inverest.sk",phone:"+421 900 000 000",web:"inverest.sk",
-       ncndaRef:"NCNDA-INVBRNC-2026-072301",cgraRef:"CGRA-INVBRNC-2026-072302",agreementRef:"AGA-BRNC-PRT-2026-0001",
-       signedAt:"2026-07-23",territory:"Slovakia · Czech Republic · Poland · Hungary",
-       splitPct:50,retentionPct:10,
-       note:"Cooperation Agreement Art. 2.1 — under the Boran&Co Group umbrella.",
-       docs:[],
-       people:[
-         {name:"Martin Porada",role:"Konateľ / managing director",email:"m.porada@inverest.sk",phone:"+421 900 111 000",signatory:true},
-         {name:"Robert Mojsej",role:"Owner",email:"r.mojsej@inverest.sk",phone:"",signatory:false},
-         {name:"Marian Fabula",role:"Owner",email:"m.fabula@inverest.sk",phone:"",signatory:false},
-         {name:"Andrea Panikova",role:"Owner",email:"a.panikova@inverest.sk",phone:"",signatory:false}
-       ]},
-      {id:"P2",name:"Demo Partner k. s.",legalName:"Demo Partner k. s.",city:"Praha",country:"Czech Republic",
-       address:"Demonstration address 1, 110 00 Praha 1, Czech Republic",
-       ico:"00000000",dico:"CZ00000000",vat:"CZ00000000",iban:"CZ00 0000 0000 0000 0000 0000",bank:"—",
-       email:"office@demopartner.cz",phone:"+420 700 000 000",web:"",
-       ncndaRef:"—",cgraRef:"—",agreementRef:"—",signedAt:"",territory:"Czech Republic",
-       splitPct:40,retentionPct:10,
-       note:"Demonstration account — remove before go-live.",
-       docs:[],
-       people:[{name:"Demo User",role:"Sales lead",email:"demo@demopartner.cz",phone:"",signatory:true}]}
-    ],
+    partners:[],
     users:[
       {id:"U1",user:"anar",pass:"boran2026",name:"Anar Ahmad-Zada",role:"admin",partnerId:null,title:"Boran&Co s. r. o. — HQ"},
-      {id:"U2",user:"inverest",pass:"partner2026",name:"Martin Porada",role:"partner",partnerId:"P1",title:"INVEREST s. r. o."},
-      {id:"U3",user:"demo",pass:"demo2026",name:"Demo User",role:"partner",partnerId:"P2",title:"Demo Partner k. s."},
-      {id:"U4",user:"mojsej",pass:"partner2026",name:"Robert Mojsej",role:"partner",partnerId:"P1",title:"INVEREST s. r. o."},
-      {id:"U5",user:"office",pass:"office2026",name:"Office Demo",role:"office",partnerId:null,title:"Boran&Co s. r. o. — Office"}
+      {id:"U2",user:"office",pass:"office2026",name:"Office Worker",role:"office",partnerId:null,title:"Boran&Co s. r. o. — Office"}
     ],
-    visits:[
-      {id:"V1",date:"2026-09-24",label:"Autumn departure I",cap:14,note:"Site tour · developer meetings · unit holds"},
-      {id:"V2",date:"2026-12-03",label:"Winter departure II",cap:14,note:"Site tour · developer meetings · unit holds"},
-      {id:"V3",date:"2027-03-11",label:"Spring departure III",cap:14,note:"Dates to confirm with the developer"},
-      {id:"V4",date:"2027-06-10",label:"Summer departure IV",cap:14,note:"Dates to confirm with the developer"}
-    ],
-    campaigns:[
-      {id:"C1",name:"BA private dinner 07/26",partnerId:"P1",createdAt:new Date(now-7*864e5).toISOString()},
-      {id:"C2",name:"Referral — closed owner",partnerId:"P1",createdAt:new Date(now-20*864e5).toISOString()},
-      {id:"C3",name:"Kraków investor evening",partnerId:"P1",createdAt:new Date(now-81*864e5).toISOString()},
-      {id:"C4",name:"BP digital 06/26",partnerId:"P2",createdAt:new Date(now-3*864e5).toISOString()},
-      {id:"C5",name:"Vienna investor brunch 08/26",partnerId:"P1",createdAt:new Date(now-8*36e5).toISOString()}
-    ],
-    leads:[],settlements:[],
-    audit:[{ts:new Date(now-2*864e5).toISOString(),user:"System",text:"CRM initialised with demonstration data."}],
-    seq:{lead:6,stmt:1,ref:6}
+    visits:[],
+    campaigns:[],
+    leads:[],
+    settlements:[],
+    audit:[],
+    seq:{lead:1,stmt:1,ref:1}
   };
-  const mk=(o)=>{
-    const created=new Date(now-o.ago).toISOString();
-    return {
-      id:"L"+Math.random().toString(36).slice(2,8), ref:o.ref,
-      name:o.name,entity:"",country:o.country,city:o.city,email:o.email,phone:o.phone,
-      channel:o.channel,campaign:o.campaign||"",
-      partnerId:o.partnerId,enteredBy:o.by,createdAt:created,
-      firstContact:new Date(now-(o.fc||o.ago)).toISOString(),
-      budget:o.budget||"",unit:o.unit||"",intent:o.intent||"",timeline:o.timeline||"",
-      stage:o.stage||2,
-      presented:o.presented?new Date(now-(o.ago-2*864e5)).toISOString():null,
-      shortlist:(o.sl||[]).join(" / "),
-      shortlistItems:o.sl||[],
-      dep:{status:o.dep||"none",amount:o.depAmt||null,date:o.dep?new Date(now-(o.ago-3*864e5)).toISOString():null},
-      travelFunding:o.fund||null,
-      visitId:o.visit||null,visitStatus:o.visitStatus||"none",
-      resRef:o.resRef||"",devReg:{status:o.devReg||"none",date:o.devRegAgo?new Date(now-o.devRegAgo).toISOString():null},
-      contractRef:o.contractRef||"",contractVal:o.contractVal||null,payPct:o.payPct||0,
-      contractNotes:o.cNotes||"",contractFile:o.cFile?{name:"purchase-contract-signed.pdf",size:48210,data:DEMO_FILE,ts:new Date(now-(o.ago-6*864e5)).toISOString(),user:"Anar Ahmad-Zada"}:null,
-      installments:o.inst||[],
-      devPaid:!!o.devPaid,
-      comments:o.comments||[],
-      infoForm:null,
-      docs:(o.docs||[]).map(s=>({id:"D"+Math.random().toString(36).slice(2,8),slot:s,label:SLOT_LABELS[s]||"Additional document",name:s+"-demo.pdf",size:24400,data:DEMO_FILE,ts:new Date(now-(o.ago-4*864e5)).toISOString(),user:o.by})),
-      commRate:o.commRate??null,stmtRef:"",clawback:false,
-      history:[{ts:created,user:o.by,text:"Lead entered in CRM — attribution timestamp fixed."}]
-    };
-  };
-  db.leads=[
-    mk({ref:"BRNC-2026-0001",name:"Tomáš Král",country:"Slovakia",city:"Bratislava",email:"t.kral@example.sk",phone:"+421 900 111 222",channel:"Own network",campaign:"BA private dinner 07/26",partnerId:"P1",by:"Martin Porada",stage:3,budget:"€300k – €500k",unit:"Apartment",intent:"Investment",timeline:"3–6 months",ago:6*864e5,fc:6.5*864e5}),
-    mk({ref:"BRNC-2026-0002",name:"Eva Horváthová",country:"Slovakia",city:"Košice",email:"eva.h@example.sk",phone:"+421 900 333 444",channel:"Referral",campaign:"Referral — closed owner",partnerId:"P1",by:"Martin Porada",stage:5,budget:"€150k – €300k",unit:"Apartment",intent:"Mixed",timeline:"0–3 months",ago:19*864e5,fc:19.5*864e5,presented:true,sl:["SB Lighthouse 2-bed, 74 m²","SB Resort 1-bed, 58 m²"],dep:"paid",depAmt:3000,visit:"V1",visitStatus:"booked",docs:["passport"],
-      comments:[
-        {ts:new Date(now-1.2*864e5).toISOString(),user:"Anar Ahmad-Zada",role:"admin",text:"Deposit received and booked to the September departure. Please have Eva complete the investor information form - it is the last open item on her stage-5 gate."},
-        {ts:new Date(now-1.5*864e5).toISOString(),user:"Martin Porada",role:"partner",text:"Eva confirmed the September departure. She will send the passport scan this week."}
-      ]}),
-    mk({ref:"BRNC-2026-0003",name:"Piotr Zieliński",country:"Poland",city:"Kraków",email:"p.zielinski@example.pl",phone:"+48 600 555 111",channel:"Event / seminar",campaign:"Kraków investor evening",partnerId:"P1",by:"Martin Porada",stage:7,budget:"€500k – €1M",unit:"Villa",intent:"Investment",timeline:"0–3 months",ago:64*864e5,fc:64.6*864e5,presented:true,sl:["SB Villa Quarter V-12, 210 m² + plot"],dep:"travel",depAmt:3000,fund:"deposit",visit:"V1",visitStatus:"attended",resRef:"SB-RES-2026-0141",devReg:"registered",devRegAgo:40*864e5,contractRef:"SB-PA-2026-077",contractVal:620000,payPct:50,commRate:2,cNotes:"Signed on site in Baku. 50/50 installment schedule; second tranche due at handover.",cFile:true,docs:["passport","infoform","travel"],
-      inst:[
-        {id:"I1",label:"Tranche 1 — at signing",amount:310000,due:"2026-06-15",paid:true,paidDate:new Date(now-40*864e5).toISOString()},
-        {id:"I2",label:"Tranche 2 — at handover",amount:310000,due:"2026-07-20",paid:false,paidDate:null}
-      ]}),
-    mk({ref:"BRNC-2026-0004",name:"Gábor Szabó",country:"Hungary",city:"Budapest",email:"g.szabo@example.hu",phone:"+36 30 777 888",channel:"Paid advertising",campaign:"BP digital 06/26",partnerId:"P2",by:"Demo User",stage:2,budget:"< €150k",unit:"Undecided",intent:"Personal use",timeline:"6–12 months",ago:2*864e5,fc:2.2*864e5}),
-    mk({ref:"BRNC-2026-0005",name:"Jana Novotná",country:"Czech Republic",city:"Brno",email:"j.novotna@example.cz",phone:"+420 700 222 333",channel:"Event / seminar",campaign:"Kraków investor evening",partnerId:"P1",by:"Martin Porada",stage:6,budget:"€300k – €500k",unit:"Apartment",intent:"Investment",timeline:"0–3 months",ago:80*864e5,fc:80.4*864e5,presented:true,sl:["SB Marina 2-bed, 81 m²"],dep:"travel",depAmt:3000,fund:"deposit",visit:"V1",visitStatus:"attended",devReg:"registered",devRegAgo:78*864e5,docs:["passport","infoform"]}),
-    mk({ref:"BRNC-2026-0006",name:"Márton Kiss",country:"Hungary",city:"Debrecen",email:"m.kiss@example.hu",phone:"+36 30 444 555",channel:"Referral",campaign:"Referral — closed owner",partnerId:"P1",by:"Martin Porada",stage:8,budget:"€300k – €500k",unit:"Apartment",intent:"Personal use",timeline:"0–3 months",ago:150*864e5,fc:150.3*864e5,presented:true,sl:["SB Lighthouse 3-bed, 96 m²"],dep:"travel",depAmt:3000,fund:"deposit",visit:"V1",visitStatus:"attended",resRef:"SB-RES-2026-0098",devReg:"registered",devRegAgo:130*864e5,contractRef:"SB-PA-2026-062",contractVal:388000,payPct:100,commRate:2,cNotes:"Paid in full at signing from own funds. Straightforward file; the investor is considering a second unit for a family member.",cFile:true,docs:["passport","infoform","travel","depinvoice"],devPaid:true,stmt:"STMT-BRNC-2026-001",
-      comments:[{ts:new Date(now-118*864e5).toISOString(),user:"Anar Ahmad-Zada",role:"admin",text:"Statement STMT-BRNC-2026-001 issued and paid. Well handled - the file went from first contact to signature in under five weeks."}]}),
-    mk({ref:"BRNC-2026-0007",name:"Lukáš Beneš",country:"Czech Republic",city:"Praha",email:"l.benes@example.cz",phone:"+420 700 888 999",channel:"Social media",campaign:"BP digital 06/26",partnerId:"P2",by:"Demo User",stage:7,budget:"> €1M",unit:"Villa",intent:"Investment",timeline:"0–3 months",ago:96*864e5,fc:96.5*864e5,presented:true,sl:["SB Villa Quarter V-04, 240 m² + plot","SB Villa Quarter V-07, 226 m²"],dep:"travel",depAmt:5000,fund:"deposit",visit:"V1",visitStatus:"attended",resRef:"SB-RES-2026-0155",devReg:"registered",devRegAgo:70*864e5,contractRef:"SB-PA-2026-081",contractVal:1240000,commRate:3,cNotes:"Three-tranche schedule agreed with the developer: signature, structural completion, handover. Buyer's counsel reviewed the Azerbaijani title documentation before signing.",cFile:true,docs:["passport","infoform","travel"],devPaid:true,
-      inst:[
-        {id:"I3",label:"Tranche 1 — at signature",amount:372000,due:"2026-05-20",paid:true,paidDate:new Date(now-68*864e5).toISOString()},
-        {id:"I4",label:"Tranche 2 — structural completion",amount:434000,due:"2026-11-30",paid:true,paidDate:new Date(now-12*864e5).toISOString()},
-        {id:"I5",label:"Tranche 3 — at handover",amount:434000,due:"2026-10-15",paid:false,paidDate:null}
-      ]})
-  ];
-  const eva=db.leads.find(l=>l.ref==="BRNC-2026-0002");
-  db.messages=[
-    {id:"M1",ts:new Date(now-1.2*864e5).toISOString(),folder:"comments",toAdmin:true,partnerId:"P1",from:"Anar Ahmad-Zada",fromRole:"admin",leadId:eva?eva.id:null,read:["U1"],
-     title:"Anar Ahmad-Zada commented on Eva Horváthová",
-     body:"Deposit received and booked to the September departure. Please have Eva complete the investor information form - it is the last open item on her stage-5 gate.\n\n— on record BRNC-2026-0002, stage 5: Commitment deposit."},
-    {id:"M2",ts:new Date(now-1.5*864e5).toISOString(),folder:"comments",toAdmin:true,partnerId:"P1",from:"Martin Porada",fromRole:"partner",leadId:eva?eva.id:null,read:["U2"],
-     title:"Martin Porada commented on Eva Horváthová",
-     body:"Eva confirmed the September departure. She will send the passport scan this week.\n\n— on record BRNC-2026-0002, stage 5: Commitment deposit."},
-    {id:"M3",ts:new Date(now-112*864e5).toISOString(),folder:"settlements",toAdmin:true,partnerId:"P1",from:"Anar Ahmad-Zada",read:["U1"],
-     title:"Payment sent — € 3,492 on STMT-BRNC-2026-001",
-     body:"€ 3,492 has been paid against statement STMT-BRNC-2026-001 (Márton Kiss).\nCleared basis € 388,000 · corridor fee € 7,760 at 2% · 10% retained in-house · division 50%."},
-    {id:"M4",ts:new Date(now-150*864e5).toISOString(),folder:"general",toAdmin:true,partnerId:"P1",from:"Anar Ahmad-Zada",read:["U1","U2"],
-     title:"CRM access granted — INVEREST s. r. o.",
-     body:"Onboarding is complete: NCNDA-INVBRNC-2026-072301, CGRA-INVBRNC-2026-072302 and the Agency Agreement are signed, materials handed over.\nDivision rate 50% of the pool remaining after Boran&Co's 10% in-house retention. Weekly pipeline review every Tuesday."}
-  ];
-  const ms=db.leads.find(l=>l.ref==="BRNC-2026-0006");
-  if(ms){
-    ms.stmtRef="STMT-BRNC-2026-001";
-    db.settlements.push({id:"S1",ref:"STMT-BRNC-2026-001",ts:new Date(now-120*864e5).toISOString(),leadId:ms.id,leadName:ms.name,partnerId:"P1",value:388000,rate:2,fee:7760,retentionPct:10,splitPct:50,basis:"collected",amount:3492,confirmed:true,paid:true,paidDate:new Date(now-112*864e5).toISOString(),clawback:false});
-    db.seq.stmt=2;
-  }
-  db.seq.ref=8;db.seq.lead=8;
-  return db;
 }
 
 /* ---------- storage & migration ---------- */
@@ -954,6 +882,7 @@ function doLogout(){SESSION=null;try{sessionStorage.removeItem("boranco_sess")}c
 function enterApp(){
   $("#login").style.display="none";$("#app").classList.add("on");
   $("#su-name").textContent=SESSION.name;$("#su-co").textContent=SESSION.title;
+  {const m=myManual();const a=$("#su-manual");if(a){a.href=m.href;a.textContent="Download user manual (PDF)";}}
   syncAlerts();buildNav();go("dash");
 }
 
@@ -971,7 +900,8 @@ const ICONS={
  inbox:'<svg viewBox="0 0 24 24"><path d="M3 13h5l1.5 3h5L16 13h5M3 13l3-8h12l3 8v6H3z"/></svg>',
  users:'<svg viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/><circle cx="18" cy="8" r="2.4"/><path d="M16.2 13.6c2.6.5 4.5 2.8 4.5 5.4"/></svg>',
  archive:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4"/><path d="M5 8v12h14V8M9 12h6"/></svg>',
- special:'<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 18l-6 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>'
+ special:'<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 18l-6 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>',
+ assistant:'<svg viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 1 7 7v1.5a3.5 3.5 0 0 1 0 7H8a5 5 0 0 1-5-5v-3a7 7 0 0 1 7-7z"/><circle cx="9.5" cy="11" r="1.1"/><circle cx="14.5" cy="11" r="1.1"/></svg>'
 };
 function buildNav(){
   let items=[
@@ -985,10 +915,11 @@ function buildNav(){
   if(isStaff())items.push({v:"settle",t:"Settlements",i:"settle"},{v:"partners",t:"Partners & access",i:"partners"},{v:"report",t:"Reports & review",i:"report"},{v:"finance",t:"Finances",i:"finance"});
   if(isAdmin())items.push({v:"special",t:"Special terms",i:"special"},{v:"users",t:"Users & roles",i:"users"},{v:"archive",t:"Deleted archive",i:"archive"});
   else items.push({v:"settle",t:"My commissions",i:"settle"});
+  items.push({v:"assistant",t:"Assistant",i:"assistant"});
   const un=msgUnread();
   $("#nav").innerHTML='<div class="nav-lab">Workspace</div>'+items.map(x=>`<div class="nav-it${VIEW===x.v?' on':''}" onclick="go('${x.v}')">${ICONS[x.i]}<span>${x.t}</span>${x.v==="inbox"&&un?`<span class="nav-badge">${un}</span>`:""}</div>`).join("");
 }
-const TITLES={dash:["Dashboard","The corridor at a glance"],inbox:["Inbox","Comments, installment dates and settlement notices — each in its own folder"],board:["Pipeline board","Partner lane through the wired deposit — Boran&Co from there to settlement"],leads:["Leads","If it is not in the CRM, it does not exist"],deals:["Deals","Live · completed · closed — what is granted, and what is on hold"],visits:["Baku visits","Four organized group departures per year — click a departure for the manifest"],settle:["Settlements","Paid only when the developer has paid — back-to-back"],partners:["Partners & access","Named accounts only — every action attributable"],report:["Reports & review","Weekly pipeline review · monthly corridor report"],finance:["Finances","Everything the CRM knows about the money"],users:["Users & roles","Create and remove accounts — administrators, office workers and partner users"],archive:["Deleted archive","Deleted items are kept here — restore them, or delete them permanently"],special:["Special terms","An authorised override of the commission split for one exceptional deal"]};
+const TITLES={dash:["Dashboard","The corridor at a glance"],inbox:["Inbox","Comments, installment dates and settlement notices — each in its own folder"],board:["Pipeline board","Partner lane through the wired deposit — Boran&Co from there to settlement"],leads:["Leads","If it is not in the CRM, it does not exist"],deals:["Deals","Live · completed · closed — what is granted, and what is on hold"],visits:["Baku visits","Four organized group departures per year — click a departure for the manifest"],settle:["Settlements","Paid only when the developer has paid — back-to-back"],partners:["Partners & access","Named accounts only — every action attributable"],report:["Reports & review","Weekly pipeline review · monthly corridor report"],finance:["Finances","Everything the CRM knows about the money"],users:["Users & roles","Create and remove accounts — administrators, office workers and partner users"],archive:["Deleted archive","Deleted items are kept here — restore them, or delete them permanently"],special:["Special terms","An authorised override of the commission split for one exceptional deal"],assistant:["Assistant","Ask how to use the CRM, how the pipeline works, or anything about the process"]};
 function go(v){VIEW=v;buildNav();const t=TITLES[v]||["",""];$("#tb-title").textContent=(v==="settle"&&!isStaff())?"My commissions":t[0];$("#tb-sub").textContent=t[1];render()}
 
 function topActions(){
@@ -1014,6 +945,7 @@ function render(){
   else if(VIEW==="users")c.innerHTML=rUsers();
   else if(VIEW==="archive")c.innerHTML=rArchive();
   else if(VIEW==="special")c.innerHTML=rSpecial();
+  else if(VIEW==="assistant"){c.innerHTML=rAssistant();renderAILog();}
 }
 
 /* ================= DASHBOARD ================= */
@@ -3736,6 +3668,124 @@ function clearSpecial(id){
   log(l,`Special terms removed — reverted to ${partnerName(l.partnerId)}'s standard split (${retPct(l.partnerId)}% in-house, ${splitPct(l.partnerId)}% division).`);
   save();render();
 }
+
+/* ================= AI ASSISTANT ================= */
+let AI_CHAT=[];
+let AI_BUSY=false;
+try{const s=localStorage.getItem("boranco_ai_chat");if(s)AI_CHAT=JSON.parse(s)||[]}catch(e){AI_CHAT=[]}
+function aiSave(){try{localStorage.setItem("boranco_ai_chat",JSON.stringify(AI_CHAT.slice(-40)))}catch(e){}}
+function aiSuggestions(){
+  if(isStaff())return [
+    "How do I add a new lead?",
+    "Explain the 8 stages of the pipeline",
+    "How do I confirm a payment so the partner is paid?",
+    "What does 'awaiting confirmation' mean?",
+    isAdmin()?"How do I add a new partner company and login?":"How do I add a new partner company?",
+    "When is a deal marked as closed?"
+  ];
+  return [
+    "How do I add a new lead?",
+    "Explain the 8 stages of the pipeline",
+    "How and when do I get paid?",
+    "What does 'awaiting confirmation' mean?",
+    "How do I record a deposit?",
+    "Do I deal with the developer directly?"
+  ];
+}
+function myManual(){
+  if(isAdmin())return {href:"manuals/administrator-manual.pdf",label:"Administrator manual"};
+  if(isStaff())return {href:"manuals/office-worker-manual.pdf",label:"Office worker manual"};
+  return {href:"manuals/partner-manual.pdf",label:"Partner manual"};
+}
+function rAssistant(){
+  const m=myManual();
+  return `
+  <div class="ai-wrap">
+    <div class="man-card">
+      <div class="man-ico">${ICONS.report||""}</div>
+      <div class="man-body">
+        <b>Your user manual</b>
+        <p>A plain-language guide to every screen and task for your account — keep it to hand and refer back any time.</p>
+        <div class="man-links">
+          <a class="btn gold sm" href="${m.href}" target="_blank" rel="noopener">Download the ${m.label} (PDF)</a>
+          ${isAdmin()?`<span class="man-extra">Manuals for your team: <a href="manuals/office-worker-manual.pdf" target="_blank" rel="noopener">Office worker</a> · <a href="manuals/partner-manual.pdf" target="_blank" rel="noopener">Partner</a></span>`:""}
+        </div>
+      </div>
+    </div>
+    <div class="ai-intro">
+      <div class="ai-mark">${ICONS.assistant}</div>
+      <div>
+        <h3 class="serif" style="margin:0 0 3px">Ask the assistant</h3>
+        <p style="font-size:12.5px;color:var(--ink-soft);margin:0;max-width:620px">Ask anything about how to use this CRM — how to enter a lead, how the pipeline and gates work, how commission is confirmed and paid, or what a screen means. The assistant knows the whole process. It gives guidance only; it does not change your data.</p>
+      </div>
+    </div>
+    <div class="ai-log" id="ai-log"></div>
+    <div class="ai-suggest" id="ai-suggest">
+      ${aiSuggestions().map(q=>`<button class="ai-chip" onclick="aiAsk(this.dataset.q)" data-q="${esc(q)}">${esc(q)}</button>`).join("")}
+    </div>
+    <div class="ai-input">
+      <textarea id="ai-text" rows="2" placeholder="Type your question and press Enter…" onkeydown="aiKey(event)"></textarea>
+      <button class="btn gold" id="ai-send" onclick="aiSendFromBox()">Send</button>
+    </div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:8px">${AI_CHAT.length?`<button class="btn ghost sm" onclick="aiClear()">Clear conversation</button>`:""}</p>
+  </div>`;
+}
+function renderAILog(){
+  const box=$("#ai-log");if(!box)return;
+  const sg=$("#ai-suggest");if(sg)sg.style.display=AI_CHAT.length?"none":"flex";
+  if(!AI_CHAT.length&&!AI_BUSY){box.innerHTML=`<div class="ai-empty">Your questions and answers will appear here. Pick a suggestion below, or type your own.</div>`;return;}
+  box.innerHTML=AI_CHAT.map(m=>`<div class="ai-msg ${m.role}">
+    <div class="ai-avatar">${m.role==="user"?"You":ICONS.assistant}</div>
+    <div class="ai-bubble">${aiFmt(m.content)}</div>
+  </div>`).join("")+(AI_BUSY?`<div class="ai-msg assistant"><div class="ai-avatar">${ICONS.assistant}</div><div class="ai-bubble ai-typing"><span></span><span></span><span></span></div></div>`:"");
+  box.scrollTop=box.scrollHeight;
+}
+function aiFmt(t){
+  // minimal, safe formatting: escape, then bold **x**, numbered/bulleted lines, paragraphs
+  let s=esc(t);
+  s=s.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");
+  const lines=s.split(/\n/);
+  let out="",inList=false,listTag="";
+  const close=()=>{if(inList){out+=`</${listTag}>`;inList=false}};
+  lines.forEach(ln=>{
+    const li=ln.match(/^\s*(\d+)[.)]\s+(.*)$/), bu=ln.match(/^\s*[-•]\s+(.*)$/);
+    if(li){if(!inList||listTag!=="ol"){close();out+="<ol>";inList=true;listTag="ol"}out+=`<li>${li[2]}</li>`}
+    else if(bu){if(!inList||listTag!=="ul"){close();out+="<ul>";inList=true;listTag="ul"}out+=`<li>${bu[1]}</li>`}
+    else if(ln.trim()===""){close()}
+    else{close();out+=`<p>${ln}</p>`}
+  });
+  close();
+  return out;
+}
+function aiKey(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();aiSendFromBox()}}
+function aiSendFromBox(){const t=$("#ai-text");if(!t)return;const q=t.value.trim();if(!q)return;t.value="";aiAsk(q)}
+function aiAsk(q){
+  if(AI_BUSY)return;
+  AI_CHAT.push({role:"user",content:q});aiSave();
+  AI_BUSY=true;renderAILog();
+  const payload={messages:AI_CHAT.map(m=>({role:m.role,content:m.content}))};
+  fetch("/api/assistant",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)})
+    .then(r=>r.json().then(d=>({ok:r.ok,d})))
+    .then(({ok,d})=>{
+      AI_BUSY=false;
+      if(d&&d.reply){AI_CHAT.push({role:"assistant",content:d.reply})}
+      else if(d&&d.error==="not_configured"){AI_CHAT.push({role:"assistant",content:aiNotConfigured()})}
+      else{AI_CHAT.push({role:"assistant",content:"Sorry — I couldn't reach the assistant service just now."+(d&&d.detail?`\n\n(Technical detail: ${d.detail})`:"")+"\n\nPlease try again in a moment. If it keeps happening, ask your administrator to check that the AI key is set."})}
+      aiSave();renderAILog();
+    })
+    .catch(err=>{
+      AI_BUSY=false;
+      AI_CHAT.push({role:"assistant",content:"Sorry — I couldn't reach the assistant service (network error). Please try again in a moment."});
+      aiSave();renderAILog();
+    });
+  renderAILog();
+}
+function aiNotConfigured(){
+  return (isAdmin()
+    ? "The AI assistant is not switched on yet.\n\nTo enable it, an administrator adds the AI key in the hosting settings (in Vercel: Project → Settings → Environment Variables → add **ANTHROPIC_API_KEY**), then redeploys. Full steps are in the user manual under **Setting up the assistant**."
+    : "The AI assistant is not switched on yet. Please ask your administrator to add the AI key so this feature starts working.");
+}
+function aiClear(){if(!confirm("Clear this conversation?"))return;AI_CHAT=[];aiSave();render();}
 
 </script>
 </body>
