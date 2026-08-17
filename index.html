@@ -485,6 +485,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
 .man-extra a{color:var(--navy);text-decoration:underline}
 .side-manual{display:block;color:var(--gold);font-size:11.5px;text-decoration:none;margin:2px 0 9px;border-bottom:1px solid transparent}
 .side-manual:hover{border-bottom-color:var(--gold)}
+.sync-row{display:flex;align-items:center;gap:6px;font-size:10.5px;color:rgba(246,242,233,.6);margin:0 0 9px;letter-spacing:.01em}
+.sync-row a{color:var(--gold);text-decoration:none}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#8894a0;flex-shrink:0}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:var(--ivory);padding:11px 18px;border-radius:4px;font-size:12.5px;box-shadow:0 8px 26px rgba(11,29,46,.32);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;border:1px solid rgba(194,162,87,.4);max-width:82vw}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .ai-intro{display:flex;gap:15px;align-items:flex-start;background:linear-gradient(135deg,var(--navy),#12314a);color:var(--ivory);padding:18px 20px;margin-bottom:16px}
 .ai-mark{width:42px;height:42px;flex-shrink:0;border:1px solid rgba(194,162,87,.5);border-radius:50%;display:flex;align-items:center;justify-content:center}
 .ai-mark svg{width:22px;height:22px;stroke:var(--gold);fill:none;stroke-width:1.6}
@@ -548,6 +553,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
       <div class="nm" id="su-name"></div>
       <div class="co" id="su-co"></div>
       <a class="side-manual" id="su-manual" href="#" target="_blank" rel="noopener">Download user manual (PDF)</a>
+      <div class="sync-row" id="sync-badge"><span class="sync-dot"></span>Starting…</div>
       <button onclick="doLogout()">Sign out</button>
     </div>
   </aside>
@@ -676,6 +682,11 @@ function migrate(db){
   });
   const sorted=[...db.leads].sort((a,b)=>a.createdAt<b.createdAt?-1:1);
   sorted.forEach(l=>{
+    if(!l.dep)l.dep={status:"none",amount:0,date:null};
+    if(l.dep.status==null)l.dep.status="none";
+    if(!Array.isArray(l.comments))l.comments=[];
+    if(!Array.isArray(l.history))l.history=[];
+    if(l.stage==null)l.stage=2;
     if(!l.ref){l.ref="BRNC-"+new Date(l.createdAt).getFullYear()+"-"+String(db.seq.ref++).padStart(4,"0")}
     if(l.presented===undefined)l.presented=l.stage>4?l.createdAt:null;
     if(l.shortlist===undefined)l.shortlist="";
@@ -706,7 +717,79 @@ function load(){
   try{const raw=localStorage.getItem(LS_KEY);if(raw){DB=migrate(JSON.parse(raw));save();return}}catch(e){}
   DB=migrate(seed());save();
 }
-function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){alert("Local storage is full — an uploaded file may be too large for the prototype. The last change was not saved.")}}
+let _cloudTimer=null;
+function stamp(){ try{DB._v=Math.max((DB._v||0)+1, Date.now()); DB._by=SESSION?SESSION.name:(DB._by||"");}catch(e){} }
+function save(){
+  stamp();
+  try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){ if(!CLOUD.on)alert("This device's local storage is full — a large uploaded file may be the cause. The last change was not saved."); }
+  if(CLOUD.on){ CLOUD.status="saving"; syncBadge(); clearTimeout(_cloudTimer); _cloudTimer=setTimeout(cloudPush,700); }
+}
+
+/* ================= SHARED STORAGE (optional cloud sync) ================= */
+const CLOUD={on:false, checked:false, saving:false, status:"local"};
+async function cloudGet(){
+  try{const r=await fetch("/api/data",{method:"GET",headers:{"cache-control":"no-cache"}});
+    const t=await r.text(); let d=null; try{d=JSON.parse(t)}catch(e){ return {error:"badresponse", status:r.status}; }
+    if(d&&d.error) return {error:d.error, status:r.status};
+    return {data:d&&d.data};
+  }catch(e){ return {error:"offline"}; }
+}
+async function cloudPush(){
+  if(!CLOUD.on) return;
+  const str=JSON.stringify(DB);
+  if(str.length>950000){ CLOUD.status="toolarge"; syncBadge(); return; }
+  CLOUD.saving=true; CLOUD.status="saving"; syncBadge();
+  try{
+    const r=await fetch("/api/data",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:DB})});
+    const d=await r.json();
+    CLOUD.status = (d&&d.ok)?"synced":(d&&d.error==="too_large"?"toolarge":"error");
+  }catch(e){ CLOUD.status="offline"; }
+  CLOUD.saving=false; syncBadge();
+}
+async function bootData(){
+  load(); // local first: instant and works offline
+  if(!/^https?:$/.test(location.protocol)){ CLOUD.on=false; CLOUD.checked=true; CLOUD.status="local"; syncBadge(); return; }
+  const res=await cloudGet();
+  if(res.error){ CLOUD.on=false; CLOUD.checked=true; CLOUD.status=(res.error==="not_configured")?"local":"offline"; syncBadge(); return; }
+  CLOUD.on=true; const cloud=res.data;
+  if(cloud && (cloud._v||0) >= (DB._v||0)){
+    DB=migrate(cloud); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+    CLOUD.status="synced";
+  }else{ await cloudPush(); }   // local newer or cloud empty → publish local
+  CLOUD.checked=true; syncBadge();
+  if(SESSION) render();
+}
+function busyEditing(){
+  if($("#modal")&&$("#modal").classList.contains("on")) return true;
+  if($("#drawer")&&$("#drawer").classList.contains("on")) return true;
+  const ae=document.activeElement; if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
+  return false;
+}
+async function pollSync(silent){
+  if(!CLOUD.on||CLOUD.saving) return;
+  if(!silent&&(document.hidden||busyEditing())) return;
+  const res=await cloudGet();
+  if(res.error){ CLOUD.status="offline"; syncBadge(); return; }
+  if(res.data && (res.data._v||0) > (DB._v||0) && !busyEditing()){
+    DB=migrate(res.data); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+    CLOUD.status="synced"; if(SESSION) render(); toast("Updated with the latest changes from your team.");
+  }else{ CLOUD.status="synced"; }
+  syncBadge();
+}
+function refreshNow(){ if(!CLOUD.on){toast("Shared storage is not switched on — this device only.");return;} toast("Checking for the latest changes…"); pollSync(true); }
+function startSync(){ setInterval(()=>pollSync(false), 10000); window.addEventListener("online",()=>pollSync(true)); }
+let _toastTimer=null;
+function toast(msg){
+  let t=$("#toast"); if(!t){t=document.createElement("div");t.id="toast";document.body.appendChild(t);}
+  t.textContent=msg; t.classList.add("on"); clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>t.classList.remove("on"),3200);
+}
+const SYNC_TXT={local:"This device only",offline:"Offline — saved on this device",saving:"Saving…",synced:"Shared · all devices",toolarge:"File too large to share",error:"Sync error"};
+function syncBadge(){
+  const el=$("#sync-badge"); if(!el)return;
+  const s=CLOUD.status;
+  const dot = s==="synced"?"#3f7d4e":s==="saving"?"#C2A257":s==="local"?"#8894a0":"#b4552f";
+  el.innerHTML=`<span class="sync-dot" style="background:${dot}"></span>${SYNC_TXT[s]||s}${CLOUD.on?` · <a href="#" onclick="refreshNow();return false">refresh</a>`:""}`;
+}
 
 /* ---------- helpers ---------- */
 const $=s=>document.querySelector(s);
@@ -912,8 +995,8 @@ function buildNav(){
     {v:"deals",t:"Deals",i:"deals"},
     {v:"visits",t:"Baku visits",i:"visits"}
   ];
-  if(isStaff())items.push({v:"settle",t:"Settlements",i:"settle"},{v:"partners",t:"Partners & access",i:"partners"},{v:"report",t:"Reports & review",i:"report"},{v:"finance",t:"Finances",i:"finance"});
-  if(isAdmin())items.push({v:"special",t:"Special terms",i:"special"},{v:"users",t:"Users & roles",i:"users"},{v:"archive",t:"Deleted archive",i:"archive"});
+  if(isStaff())items.push({v:"settle",t:"Settlements",i:"settle"},{v:"partners",t:"Partners & access",i:"partners"},{v:"report",t:"Reports & review",i:"report"},{v:"finance",t:"Finances",i:"finance"},{v:"special",t:"Special terms",i:"special"});
+  if(isAdmin())items.push({v:"users",t:"Users & roles",i:"users"},{v:"archive",t:"Deleted archive",i:"archive"});
   else items.push({v:"settle",t:"My commissions",i:"settle"});
   items.push({v:"assistant",t:"Assistant",i:"assistant"});
   const un=msgUnread();
@@ -926,7 +1009,7 @@ function topActions(){
   const a=$("#tb-actions");let h="";
   if(["leads","dash","board"].includes(VIEW))h+=`<button class="btn gold sm" onclick="openLeadForm()">+ New lead</button>`;
   if(VIEW==="visits"&&isStaff())h+=`<button class="btn sm" onclick="openVisitForm()">+ Departure</button>`;
-  if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm()">+ Partner</button><button class="btn ghost sm" onclick="openUserForm()">+ User</button>`;
+  if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm()">+ Partner</button><button class="btn ghost sm" onclick="openUserForm2(null,'partner')">+ User</button>`;
   if(isStaff())h+=`<button class="btn ghost sm" onclick="exportJSON()">Export</button>`;
   a.innerHTML=h;
 }
@@ -2693,25 +2776,7 @@ function savePartner(){
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Partner company added: ${n} — division rate ${+$("#p-split").value||50}%.`});
   save();closeModal();render();openPartnerCard(id,"profile");
 }
-function openUserForm(pid,personName){
-  const p=pid?partnerOf(pid):null;
-  const person=p&&personName?(p.people||[]).find(x=>x.name===personName):null;
-  const suggest=person?person.name.toLowerCase().split(" ").slice(-1)[0].replace(/[^a-z0-9]/g,""):"";
-  openModal(`<div class="modal-box">
-    <div class="modal-h"><h3 class="serif">New named account${p?` — ${esc(p.name)}`:""}</h3><button class="dr-x" onclick="closeModal()">×</button></div>
-    <div class="modal-b">
-      <div class="note">Named accounts per person — no shared logins, and a company may hold as many as it needs. Every action in the CRM is attributed to the signed-in person. <b>Prototype note:</b> access codes here are demonstration-only; real credentials belong on the server, never in the page.</div>
-      <div class="grid2">
-        <div class="fld"><label>Full name *</label><input id="u-name" value="${esc(person?person.name:"")}"></div>
-        <div class="fld"><label>Company *</label><select id="u-partner"><option value="">Boran&Co HQ (admin)</option>${DB.partners.map(x=>`<option value="${x.id}" ${pid===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
-        <div class="fld"><label>Username *</label><input id="u-user" value="${esc(suggest)}"></div>
-        <div class="fld"><label>Access code *</label><input id="u-pass" value="partner2026"></div>
-      </div>
-      ${person?`<p style="font-size:11.5px;color:var(--ink-soft)">Creating access for <b>${esc(person.name)}</b>${person.role?` — ${esc(person.role)}`:""}${person.email?` · ${esc(person.email)}`:""}.</p>`:""}
-    </div>
-    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveUser('${pid||""}')">Create account</button></div>
-  </div>`);
-}
+function openUserForm(pid,personName){openUserForm2(null,pid?"partner":"office",pid||null,personName||"");}
 function saveUser(backTo){
   const name=$("#u-name").value.trim(),user=$("#u-user").value.trim().toLowerCase(),pass=$("#u-pass").value;
   if(!name||!user||!pass){alert("All fields are required.");return}
@@ -2932,12 +2997,12 @@ function openStmtForm(id){
         <div class="wc-row tot"><span>Payable to the partner now</span><b>${eur(due)}</b></div>
         <div class="wc-row"><span>Boran&Co net on this basis</span><b>${eur(Math.round(boranOn(l,cleared)))}</b></div>
       </div>
-      <p style="font-size:11.5px;color:var(--ink-soft);margin-top:12px">The corridor rate is fixed on the contract; the retention and division rates are the partner's agreed terms, set on the partner card. They are shown here for transparency and cannot be changed on a statement.${isAdmin()?" Exceptional deals use the special-terms override below.":""}</p>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin-top:12px">The corridor rate is fixed on the contract; the retention and division rates are the partner's agreed terms, set on the partner card. They are shown here for transparency and cannot be changed on a statement.${isStaff()?" Exceptional deals use the special-terms override below.":""}</p>
       <div class="fld" style="margin-top:10px"><label><input type="checkbox" id="s-recv" style="width:auto;margin-right:8px" ${l.devPaid?"checked":""}>Sea Breeze has remitted the corresponding corridor fee to Boran&amp;Co</label></div>
       ${commOnHold(l)?`<p style="font-size:11.5px;color:var(--ink-soft)">${eur(commOnHold(l))} of the partner's share remains on hold against payments still to arrive, and can be stated as each tranche clears.</p>`:""}
     </div>
     <div class="modal-f">
-      ${isAdmin()?`<button class="btn ghost" onclick="openSpecialTerms('${l.id}')" style="margin-right:auto">${hasSpecial?"Edit special terms":"Special terms…"}</button>`:""}
+      ${isStaff()?`<button class="btn ghost" onclick="openSpecialTerms('${l.id}')" style="margin-right:auto">${hasSpecial?"Edit special terms":"Special terms…"}</button>`:""}
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn gold" onclick="saveStmt('${l.id}')" ${due<=0?"disabled":""}>Issue statement${due>0?" for "+eur(due):""}</button>
     </div>
@@ -3135,8 +3200,11 @@ function exportJSON(){
 }
 
 /* ---------- boot ---------- */
-load();
-try{const s=sessionStorage.getItem("boranco_sess");if(s){SESSION=JSON.parse(s);enterApp()}}catch(e){}
+(async()=>{
+  await bootData();
+  try{const s=sessionStorage.getItem("boranco_sess");if(s){SESSION=JSON.parse(s);enterApp()}}catch(e){}
+  startSync();
+})();
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeDrawer();closeModal()}});
 $("#lg-pass").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin()});
 
@@ -3246,7 +3314,7 @@ function pcBody(p,tab,pl,users,deals){
     ${(p.people||[]).length?(p.people||[]).map((x,i)=>`<div class="prow">
       <div><b>${esc(x.name)}</b>${x.signatory?' <span class="tag gold">Signatory</span>':""}<div class="pn">${esc(x.role||"—")}</div></div>
       <div class="pn">${esc(x.email||"—")}${x.phone?` · ${esc(x.phone)}`:""}</div>
-      <div>${DB.users.some(u=>u.partnerId===p.id&&u.name===x.name)?`<span class="tag ok">Has a login</span>`:isAdmin()?`<button class="btn ghost sm" onclick="openUserForm('${p.id}','${esc(x.name)}')">Create login</button>`:`<span class="tag line">No login</span>`}</div>
+      <div>${DB.users.some(u=>u.partnerId===p.id&&u.name===x.name)?`<span class="tag ok">Has a login</span>`:isAdmin()?`<button class="btn ghost sm" onclick="createLogin('${p.id}',${i})">Create login</button>`:`<span class="tag line">No login</span>`}</div>
       ${isStaff()?`<button class="doc-x" onclick="delPerson('${p.id}',${i})">✕</button>`:"<span></span>"}
     </div>`).join(""):`<div class="empty" style="padding:20px"><b>No people recorded yet</b>Add the signatory first.</div>`}
     ${isStaff()?`<div class="vedit" style="margin-top:12px"><b>Add a person</b>
@@ -3271,7 +3339,7 @@ function pcBody(p,tab,pl,users,deals){
       <td style="font-size:11.5px">${last?fmtDT(last.ts):"—"}</td>
       ${isAdmin()?`<td><button class="btn ghost sm" onclick="delUser('${u.id}')">Revoke</button></td>`:""}</tr>`;
     }).join("")}</tbody></table>`:`<div class="empty" style="padding:20px"><b>No accounts yet</b>This company cannot sign in until a login is created.</div>`}
-    ${isAdmin()?`<div class="actions-row" style="margin-top:12px"><button class="btn gold sm" onclick="openUserForm('${p.id}')">+ Create a login for this company</button></div>`:""}`;
+    ${isAdmin()?`<div class="actions-row" style="margin-top:12px"><button class="btn gold sm" onclick="openUserForm2(null,'partner','${p.id}')">+ Create a login for this company</button></div>`:""}`;
 
   if(tab==="economics"){
     const rows=deals.filter(l=>l.contractVal);
@@ -3479,22 +3547,25 @@ function rUsers(){
   </div>
   <div class="footnote"><b>Prototype note:</b> access codes are shown here for demonstration and stored in the page. In production these belong on the server behind real authentication, and are never visible to anyone.</div>`;
 }
-function openUserForm2(editId,presetRole){
+function openUserForm2(editId,presetRole,presetPid,presetName){
   const u=editId?DB.users.find(x=>x.id===editId):null;
   const role=u?u.role:(presetRole||"office");
+  const curPid=u?u.partnerId:(presetPid||(DB.partners[0]&&DB.partners[0].id)||"");
+  const nm=u?u.name:(presetName||"");
+  const suggest=u?u.user:(presetName?presetName.toLowerCase().split(" ").slice(-1)[0].replace(/[^a-z0-9]/g,""):"");
   openModal(`<div class="modal-box" style="width:min(640px,100%)">
     <div class="modal-h"><h3 class="serif">${u?"Edit account — "+esc(u.name):"New account"}</h3><button class="dr-x" onclick="closeModal()">×</button></div>
     <div class="modal-b">
-      <div class="note">Choose the role first — it decides what the person can see and do. Partner users are tied to one company.</div>
+      <div class="note">Choose the role first — it decides what the person can see and do. Partner users are tied to one company, and a matching entry is kept on that company's People list automatically.</div>
       <div class="rolepick">
         ${Object.entries(ROLES).map(([k,v])=>`<label class="ropt ${role===k?"on":""}">
           <input type="radio" name="u-role" value="${k}" ${role===k?"checked":""} onchange="uRoleChange()">
           <b>${v}</b><span>${ROLE_DESC[k]}</span></label>`).join("")}
       </div>
       <div class="grid2" style="margin-top:6px">
-        <div class="fld"><label>Full name *</label><input id="u-name" value="${esc(u?u.name:"")}"></div>
-        <div class="fld" id="u-company-wrap"><label>Partner company *</label><select id="u-partner">${DB.partners.map(p=>`<option value="${p.id}" ${u&&u.partnerId===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
-        <div class="fld"><label>Username *</label><input id="u-user" value="${esc(u?u.user:"")}" ${u?"disabled":""}></div>
+        <div class="fld"><label>Full name *</label><input id="u-name" value="${esc(nm)}"></div>
+        <div class="fld" id="u-company-wrap"><label>Partner company *</label><select id="u-partner">${DB.partners.map(p=>`<option value="${p.id}" ${curPid===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></div>
+        <div class="fld"><label>Username *</label><input id="u-user" value="${esc(suggest)}" ${u?"disabled":""}></div>
         <div class="fld"><label>Access code *</label><input id="u-pass" value="${esc(u?u.pass:"")}"></div>
       </div>
     </div>
@@ -3502,6 +3573,7 @@ function openUserForm2(editId,presetRole){
   </div>`);
   uRoleChange();
 }
+function createLogin(pid,i){const p=partnerOf(pid);const x=(p&&p.people||[])[i];openUserForm2(null,"partner",pid,x?x.name:"");}
 function uRoleChange(){
   const r=document.querySelector('input[name="u-role"]:checked')?.value;
   document.querySelectorAll('.ropt').forEach(el=>el.classList.toggle('on',el.querySelector('input').checked));
@@ -3512,17 +3584,21 @@ function saveUser2(editId){
   const name=$("#u-name").value.trim(),pass=$("#u-pass").value;
   const pid=role==="partner"?$("#u-partner").value:null;
   if(!name||!pass){alert("Name and access code are required.");return}
-  if(role==="partner"&&!pid){alert("Select the partner company.");return}
+  if(role==="partner"&&!pid){alert("Select the partner company. If none exist yet, add the partner company first under Partners & access.");return}
   const title=role==="partner"?partnerName(pid):(role==="admin"?"Boran&Co s. r. o. — HQ":"Boran&Co s. r. o. — Office");
   if(editId){
-    const u=DB.users.find(x=>x.id===editId);
+    const u=DB.users.find(x=>x.id===editId);if(!u)return;
+    const oldName=u.name;
     Object.assign(u,{name,pass,role,partnerId:pid,title});
+    if(role==="partner"&&pid){const p=partnerOf(pid);if(p){p.people=p.people||[];const per=p.people.find(x=>x.name===oldName)||p.people.find(x=>x.name===name);if(per)per.name=name;else p.people.push({name,role:"CRM user",email:"",phone:"",signatory:false});}}
     DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Account updated — ${name} (${ROLES[role]}).`});
   }else{
     const user=$("#u-user").value.trim().toLowerCase();
     if(!user){alert("Username is required.");return}
-    if(DB.users.some(x=>x.user===user)){alert("That username already exists.");return}
-    DB.users.push({id:"U"+Math.random().toString(36).slice(2,7),user,pass,name,role,partnerId:pid,title});
+    if(DB.users.some(x=>x.user===user)){alert("That username already exists. Every existing account, including the office worker, stays exactly as it is — please pick a different username.");return}
+    let id;do{id="U"+Math.random().toString(36).slice(2,8)}while(DB.users.some(x=>x.id===id));
+    DB.users.push({id,user,pass,name,role,partnerId:pid,title});
+    if(role==="partner"&&pid){const p=partnerOf(pid);if(p){p.people=p.people||[];if(!p.people.some(x=>x.name===name))p.people.push({name,role:"CRM user",email:"",phone:"",signatory:false});}}
     DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Account created — ${name} (${ROLES[role]}).`});
     if(role==="partner")msgAdd({folder:"general",toAdmin:true,partnerId:pid,from:SESSION.name,read:[SESSION.id],title:`CRM access granted — ${name}`,body:`A named account has been created for ${name} at ${partnerName(pid)}. Username: ${user}.`});
   }
@@ -3567,13 +3643,13 @@ function setArch(k){ARCH_FILTER=k;render()}
 /* ================= SPECIAL TERMS (admin-only, dedicated page) ================= */
 let SPECIAL_LEAD=null;
 function openSpecialTerms(id){
-  if(!isAdmin()){alert("Special terms can only be set by an administrator.");return}
+  if(!isStaff()){alert("Special terms are set by Boran&Co staff.");return}
   SPECIAL_LEAD=id;
   closeModal();closeDrawer();
   go("special");
 }
 function rSpecial(){
-  if(!isAdmin())return `<div class="empty"><b>Administrators only</b>Special terms are reserved to an administrator.</div>`;
+  if(!isStaff())return `<div class="empty"><b>Staff only</b>Special terms are set by Boran&Co staff.</div>`;
   const l=SPECIAL_LEAD?lead(SPECIAL_LEAD):null;
   if(!l){
     // no lead chosen — let the admin pick one
@@ -3665,7 +3741,7 @@ function specialPreview(id){
     <div class="wc-row"><span>Boran&Co net</span><b>${eur(Math.round(boran))}</b></div>`;
 }
 function saveSpecial(id){
-  if(!isAdmin())return;
+  if(!isStaff())return;
   const l=lead(id);
   const rt=+$("#sp-ret").value, sp=+$("#sp-spl").value, corr=+$("#sp-corr").value, note=$("#sp-note").value.trim();
   if($("#sp-ret").value===""||$("#sp-spl").value===""||$("#sp-corr").value===""){alert("Enter the corridor, retention and division rates.");return}
