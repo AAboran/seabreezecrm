@@ -1073,8 +1073,21 @@ function openCampaign(i){
         ${isStaff()?`<td style="font-size:11.5px">${esc(partnerName(l.partnerId))}</td>`:""}
       </tr>`).join("")}</tbody></table>`:`<div class="empty"><b>No leads sourced yet</b>Leads select this campaign on entry.</div>`}
     </div>
-    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Close</button></div>
+    <div class="modal-f">${isStaff()?`<button class="btn ghost danger" onclick="softDeleteCampaign('${c.id}')">🗑 Delete this market activation</button>`:""}<button class="btn ghost" onclick="closeModal()" style="margin-left:auto">Close</button></div>
   </div>`);
+}
+function softDeleteCampaign(id){
+  if(!isStaff())return;
+  const c=DB.campaigns.find(x=>x.id===id);if(!c)return;
+  const n=DB.leads.filter(l=>l.campaign===c.name).length;
+  const msg=n
+    ? `“${c.name}” has ${n} lead${n===1?"":"s"} sourced from it.\n\nDeleting it removes the market-activation entry and its card. Those leads are not touched — they keep this name on their record, they just won’t be grouped under a card any more.\n\nMove it to the deleted archive?`
+    : `Move the market activation “${c.name}” to the deleted archive?`;
+  if(!confirm(msg))return;
+  DB.campaigns=DB.campaigns.filter(x=>x.id!==id);
+  DB.archive.unshift(archiveEntry("campaign",c.name,`Market activation · ${partnerName(c.partnerId)}${n?` · ${n} lead${n===1?"":"s"} kept`:""}`,c));
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Market activation “${c.name}” moved to the deleted archive.`});
+  closeModal();save();render();
 }
 
 /* ================= LEADS ================= */
@@ -1106,7 +1119,7 @@ function rLeads(){
       <td>${docGot(l)?`<span class="tag ${docPackOk(l)?"ok":"warn"}">${docPackOk(l)?"Package complete":docGot(l)+" of "+docNeed()}</span>`:"—"}</td>
       <td style="font-size:11.5px">${l.visitId?fmtD(visit(l.visitId)?.date):"—"}</td>
       <td style="font-size:11.5px">${l.contractRef?esc(l.contractRef):"—"}</td>
-      ${isStaff()?`<td style="white-space:nowrap">${isFrozen(l)?'<span class="tag line" title="Closed and settled — kept permanently">locked</span>':`<button class="doc-x" title="Delete this lead" onclick="event.stopPropagation();softDeleteLead('${l.id}')">🗑</button>`}</td>`:""}
+      ${isStaff()?`<td style="white-space:nowrap">${isFrozen(l)&&!isAdmin()?'<span class="tag line" title="Closed and settled — kept permanently (locked)">locked</span>':`<button class="doc-x" title="${isFrozen(l)?'Delete this closed & settled lead':'Delete this lead'}" onclick="event.stopPropagation();softDeleteLead('${l.id}')">🗑</button>`}</td>`:""}
     </tr>`).join("")}</tbody></table></div>`
   :`<div class="empty"><b>No leads match</b>Enter a new lead within 48 hours of first contact — the entry timestamp is the attribution.</div>`}`;
 }
@@ -1331,7 +1344,7 @@ function dealCard(l){
       <button class="btn ghost sm" onclick="openDrawer('${l.id}')">Open the record</button>
       ${isStaff()&&l.stage===7&&!l.stmtRef&&!l.clawback?`<button class="btn gold sm" onclick="openStmtForm('${l.id}')">Issue settlement statement</button>`:""}
       ${l.stmtRef?`<span class="tag line" style="align-self:center">Statement ${esc(l.stmtRef)}</span>`:""}
-      ${isStaff()&&!isFrozen(l)?`<button class="btn ghost sm danger" style="margin-left:auto" onclick="softDeleteLead('${l.id}')">🗑 Delete lead</button>`:""}
+      ${isAdmin()||(isStaff()&&!isFrozen(l))?`<button class="btn ghost sm danger" style="margin-left:auto" onclick="softDeleteLead('${l.id}')">🗑 Delete lead</button>`:""}
     </div>
   </div>`;
 }
@@ -2117,7 +2130,7 @@ function frozenDrawer(l){
       <h3>${esc(l.name)}</h3>
       <div class="sub">${esc(l.city)}, ${esc(l.country)} · ${esc(partnerName(l.partnerId))}</div>
     </div>
-    <button class="dr-x" onclick="closeDrawer()">×</button>
+    <div style="display:flex;gap:8px;align-items:flex-start">${isAdmin()?`<button class="btn ghost sm danger" onclick="softDeleteLead('${l.id}')" title="Delete this closed &amp; settled lead">🗑 Delete</button>`:""}<button class="dr-x" onclick="closeDrawer()">×</button></div>
   </div>
   <div class="dr-body">
     <div class="frozen-hero">
@@ -3039,17 +3052,21 @@ function stmtClawback(id){
 
 /* ---------- export ---------- */
 /* ================= ARCHIVE (soft delete) ================= */
-const ARCH_LABEL={lead:"Lead",visit:"Departure",statement:"Statement",partner:"Partner company",campaign:"Campaign",user:"User account"};
+const ARCH_LABEL={lead:"Lead",visit:"Departure",statement:"Statement",partner:"Partner company",campaign:"Market activation",user:"User account"};
 function archiveEntry(type,label,detail,payload){
   return {id:"AR"+Math.random().toString(36).slice(2,9),type,label,detail,payload,by:SESSION.name,ts:new Date().toISOString()};
 }
 function softDeleteLead(id){
   const l=lead(id);if(!l)return;
-  if(isFrozen(l)){alert("This deal is closed and settled — it is kept as a permanent record and cannot be deleted.");return}
-  if(!confirm(`Move ${l.name} (${l.ref}) to the deleted archive?\n\nRelated settlement statements stay in place. You can restore the lead from the archive, or delete it permanently there.`))return;
+  const frozen=isFrozen(l);
+  if(frozen&&!isAdmin()){alert("This deal is closed and settled — it is kept as a permanent record and is locked. Only an administrator can delete it.");return}
+  const msg=frozen
+    ? `${l.name} (${l.ref}) is a closed and settled deal.\n\nAs an administrator you can still move it to the deleted archive. Its settlement statements stay in place, and you can restore the lead from the archive if you need it back.\n\nDelete it?`
+    : `Move ${l.name} (${l.ref}) to the deleted archive?\n\nRelated settlement statements stay in place. You can restore the lead from the archive, or delete it permanently there.`;
+  if(!confirm(msg))return;
   DB.leads=DB.leads.filter(x=>x.id!==id);
-  DB.archive.unshift(archiveEntry("lead",`${l.name} · ${l.ref}`,`${STAGES[l.stage-1].t}${l.contractRef?" · "+l.contractRef:""} · ${partnerName(l.partnerId)}`,l));
-  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${l.ref} ${l.name}: moved to the deleted archive.`});
+  DB.archive.unshift(archiveEntry("lead",`${l.name} · ${l.ref}`,`${STAGES[l.stage-1].t}${l.contractRef?" · "+l.contractRef:""} · ${partnerName(l.partnerId)}${frozen?" · was closed & settled":""}`,l));
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${l.ref} ${l.name}: moved to the deleted archive${frozen?" (was closed & settled)":""}.`});
   closeDrawer();save();render();
 }
 function softDeleteVisit(id){
@@ -3091,6 +3108,7 @@ function restoreArchive(aid){
   else if(a.type==="statement")DB.settlements.push(a.payload);
   else if(a.type==="partner"){DB.partners.push(a.payload.partner);(a.payload.users||[]).forEach(u=>DB.users.push(u));}
   else if(a.type==="user")DB.users.push(a.payload);
+  else if(a.type==="campaign"){if(!DB.campaigns.some(c=>c.name===a.payload.name&&c.partnerId===a.payload.partnerId))DB.campaigns.push(a.payload);}
   DB.archive=DB.archive.filter(x=>x.id!==aid);
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Restored from archive: ${a.label}.`});
   save();render();
@@ -3765,17 +3783,19 @@ function aiAsk(q){
   AI_BUSY=true;renderAILog();
   const payload={messages:AI_CHAT.map(m=>({role:m.role,content:m.content}))};
   fetch("/api/assistant",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(payload)})
-    .then(r=>r.json().then(d=>({ok:r.ok,d})))
-    .then(({ok,d})=>{
+    .then(async r=>{const text=await r.text();let d=null;try{d=JSON.parse(text)}catch(e){}return {status:r.status,ok:r.ok,d,text};})
+    .then(({status,ok,d,text})=>{
       AI_BUSY=false;
       if(d&&d.reply){AI_CHAT.push({role:"assistant",content:d.reply})}
       else if(d&&d.error==="not_configured"){AI_CHAT.push({role:"assistant",content:aiNotConfigured()})}
-      else{AI_CHAT.push({role:"assistant",content:"Sorry — I couldn't reach the assistant service just now."+(d&&d.detail?`\n\n(Technical detail: ${d.detail})`:"")+"\n\nPlease try again in a moment. If it keeps happening, ask your administrator to check that the AI key is set."})}
+      else if(d&&d.error==="api_error"){AI_CHAT.push({role:"assistant",content:"I couldn't complete that request."+(d.detail?`\n\n(Technical detail: ${d.detail})`:"")+"\n\nThis usually means the AI key is wrong or the Anthropic account has no billing/credit set up. Please check and try again."})}
+      else if(status===404){AI_CHAT.push({role:"assistant",content:"Sorry — the assistant service was not found (404). This means the **api/assistant.js** function isn't deployed. When uploading to the repository, make sure the whole **api** folder is included at the top level, then redeploy."})}
+      else{AI_CHAT.push({role:"assistant",content:`Sorry — the assistant service returned an unexpected response (HTTP ${status}). The server function likely failed to start. Ask your administrator to redeploy the latest version and confirm the AI key is set.`})}
       aiSave();renderAILog();
     })
     .catch(err=>{
       AI_BUSY=false;
-      AI_CHAT.push({role:"assistant",content:"Sorry — I couldn't reach the assistant service (network error). Please try again in a moment."});
+      AI_CHAT.push({role:"assistant",content:"Sorry — the request didn't reach the assistant (the connection failed). If you are offline, reconnect and try again. If you are online, the assistant service may not be deployed yet — ask your administrator to check the api folder was uploaded and the site redeployed."});
       aiSave();renderAILog();
     });
   renderAILog();

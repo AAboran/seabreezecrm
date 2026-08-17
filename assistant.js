@@ -90,7 +90,7 @@ This CRM stores its data in each browser's local storage on the device being use
 
 Keep answers focused on what the user asked. If they ask something unrelated to the CRM or the business, you can still help briefly, but gently bring them back to how you can assist with the software.`;
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "method_not_allowed" }); return; }
 
   const key = process.env.ANTHROPIC_API_KEY;
