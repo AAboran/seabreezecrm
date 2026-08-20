@@ -157,14 +157,14 @@ tr.click:hover td{background:var(--ivory)}
 .actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 
 /* modal */
-#modal{position:fixed;inset:0;background:rgba(11,29,46,.55);z-index:80;display:none;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px}
+#modal{position:fixed;inset:0;background:rgba(11,29,46,.55);z-index:80;display:none;align-items:center;justify-content:center;overflow-y:auto;padding:40px 16px}
 #modal.on{display:flex}
-.modal-box{background:var(--paper);width:min(680px,100%);border-top:4px solid var(--gold);box-shadow:0 30px 80px rgba(0,0,0,.4);margin-bottom:40px}
-.modal-h{background:var(--navy);color:var(--ivory);padding:18px 26px;display:flex;justify-content:space-between;align-items:center}
+.modal-box{background:var(--paper);width:min(680px,100%);border-top:4px solid var(--gold);box-shadow:0 30px 80px rgba(0,0,0,.4);margin:auto;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
+.modal-h{background:var(--navy);color:var(--ivory);padding:18px 26px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
 .modal-h h3{font-size:22px;font-weight:600}
-.modal-b{padding:22px 26px}
+.modal-b{padding:22px 26px;overflow-y:auto;flex:1 1 auto;min-height:0}
 .modal-b .note{font-size:11.5px;color:var(--ink-soft);background:var(--ivory);border-left:3px solid var(--gold);padding:10px 13px;margin-bottom:16px;line-height:1.55}
-.modal-f{padding:0 26px 22px;display:flex;gap:10px;justify-content:flex-end}
+.modal-f{padding:16px 26px 22px;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0;background:var(--paper);border-top:1px solid var(--hair)}
 .fld-err{color:var(--bad);font-size:11.5px;margin-top:4px;display:none}
 .dup-warn{background:rgba(140,59,46,.08);border-left:3px solid var(--bad);padding:12px 14px;font-size:12.5px;color:var(--bad);margin-bottom:14px;display:none;line-height:1.55}
 
@@ -2809,23 +2809,6 @@ function openPartnerForm(kind){
         <div class="fld"><label>Company e-mail</label><input id="p-email"></div>
         <div class="fld"><label>Company phone</label><input id="p-phone"></div>
         `}
-        <div class="fld" style="grid-column:1/-1"><label>Territory / markets covered</label><input id="p-terr" placeholder="e.g. Slovakia, Poland"></div>
-        <div class="fld"><label>Retained in-house (%)</label><input id="p-ret" type="number" step="0.5" value="${gs.retentionPct}"></div>
-        <div class="fld"><label>Division rate (%)</label><input id="p-split" type="number" step="0.5" value="${gs.splitPct}"></div>
-      </div>
-        <div class="fld"><label>Trading name *</label><input id="p-name"></div>
-        <div class="fld"><label>Full legal name</label><input id="p-legal"></div>
-        <div class="fld" style="grid-column:1/-1"><label>Registered address</label><input id="p-addr" placeholder="Street, number, postal code, city, country"></div>
-        <div class="fld"><label>City</label><input id="p-city"></div>
-        <div class="fld"><label>Country</label><input id="p-country"></div>
-        <div class="fld"><label>Identification number (IČO)</label><input id="p-ico"></div>
-        <div class="fld"><label>Tax number (DIČ)</label><input id="p-dico"></div>
-        <div class="fld"><label>VAT number</label><input id="p-vat"></div>
-        <div class="fld"><label>Website</label><input id="p-web"></div>
-        <div class="fld"><label>Bank name</label><input id="p-bank"></div>
-        <div class="fld"><label>IBAN</label><input id="p-iban"></div>
-        <div class="fld"><label>Company e-mail</label><input id="p-email"></div>
-        <div class="fld"><label>Company phone</label><input id="p-phone"></div>
         <div class="fld" style="grid-column:1/-1"><label>Territory / markets covered</label><input id="p-terr" placeholder="e.g. Slovakia, Poland"></div>
         <div class="fld"><label>Retained in-house (%)</label><input id="p-ret" type="number" step="0.5" value="${gs.retentionPct}"></div>
         <div class="fld"><label>Division rate (%)</label><input id="p-split" type="number" step="0.5" value="${gs.splitPct}"></div>
