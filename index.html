@@ -701,6 +701,7 @@ function migrate(db){
   if(!Array.isArray(db.archive))db.archive=[];
   db.users.forEach(u=>{if(!u.role)u.role=u.partnerId?"partner":"admin";if(u.role==="admin"&&u.partnerId)u.role="partner"});
   db.partners.forEach(p=>{
+    if(!p.kind)p.kind="company";
     if(p.splitPct==null)p.splitPct=db.settings.splitPct;
     if(p.retentionPct==null)p.retentionPct=db.settings.retentionPct;
     if(!Array.isArray(p.people))p.people=[];
@@ -1036,7 +1037,7 @@ function topActions(){
   const a=$("#tb-actions");let h="";
   if(["leads","dash","board"].includes(VIEW))h+=`<button class="btn gold sm" onclick="openLeadForm()">+ New lead</button>`;
   if(VIEW==="visits"&&isStaff())h+=`<button class="btn sm" onclick="openVisitForm()">+ Departure</button>`;
-  if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm()">+ Partner</button><button class="btn ghost sm" onclick="openUserForm2(null,'partner')">+ User</button>`;
+  if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm('company')">+ Partner company</button><button class="btn sm" onclick="openPartnerForm('individual')">+ Individual partner</button><button class="btn ghost sm" onclick="openUserForm2(null,'partner')">+ User</button>`;
   if(isStaff())h+=`<button class="btn ghost sm" onclick="exportJSON()">Export</button>`;
   a.innerHTML=h;
 }
@@ -1782,15 +1783,15 @@ function rPartners(){
       const hold=pl.reduce((s,l)=>s+commOnHold(l),0);
       return `<div class="pcard" onclick="openPartnerCard('${p.id}')">
         <div class="pcard-h">
-          <div><h4 class="serif">${esc(p.name)}</h4>
-          <div class="pc-sub">${esc([p.city,p.country].filter(Boolean).join(", ")||"—")}${p.ico?` · IČO ${esc(p.ico)}`:""}</div></div>
+          <div><h4 class="serif">${esc(p.name)} ${p.kind==="individual"?`<span class="tag line" style="vertical-align:middle;font-size:9.5px">Individual</span>`:""}</h4>
+          <div class="pc-sub">${esc([p.city,p.country].filter(Boolean).join(", ")||"—")}${p.kind==="individual"?(p.personalId?` · ID ${esc(p.personalId)}`:""):(p.ico?` · IČO ${esc(p.ico)}`:"")}</div></div>
           <span class="tag gold">Division ${splitPct(p.id)}%</span>
         </div>
         <div class="pc-grid">
           <div><span class="dl">Leads</span><span class="dv">${pl.length}</span></div>
           <div><span class="dl">Deals</span><span class="dv">${deals.length}</span></div>
           <div><span class="dl">Logins</span><span class="dv">${users.length}</span></div>
-          <div><span class="dl">People</span><span class="dv">${(p.people||[]).length}</span></div>
+          <div><span class="dl">${p.kind==="individual"?"Contacts":"People"}</span><span class="dv">${(p.people||[]).length}</span></div>
           <div><span class="dl">Stated</span><span class="dv">${eur(granted)}</span></div>
           <div><span class="dl">Due now</span><span class="dv" style="color:${due?"var(--ok)":"var(--navy)"}">${eur(due)}</span></div>
           <div><span class="dl">On hold</span><span class="dv">${eur(hold)}</span></div>
@@ -2757,22 +2758,61 @@ function saveVisit(editId){
   save();closeModal();render();
 }
 
-function openPartnerForm(){
+function openPartnerForm(kind){
   const gs=DB.settings||{retentionPct:10,splitPct:50};
+  const ind=(kind==="individual");
   openModal(`<div class="modal-box" style="width:min(880px,100%)">
-    <div class="modal-h"><h3 class="serif">New partner company</h3><button class="dr-x" onclick="closeModal()">×</button></div>
+    <div class="modal-h"><h3 class="serif">${ind?"New individual partner":"New partner company"}</h3><button class="dr-x" onclick="closeModal()">×</button></div>
     <div class="modal-b">
+      <input type="hidden" id="p-kind" value="${ind?"individual":"company"}">
       <div class="import-box">
         <div class="import-ico">${ICONS.report||""}</div>
         <div style="flex:1">
           <b>Start from a completed registration form</b>
-          <p>Upload the partner's filled-in Boran&amp;Co CRM Partner Registration Form (PDF). Matching fields fill in automatically. Review and complete the rest below, then click Add partner.</p>
+          <p>Upload the ${ind?"individual's filled-in Individual Partner Registration Form":"partner's filled-in Partner Registration Form"} (PDF). Matching fields fill in automatically. Review and complete the rest below, then click Add partner.</p>
           <label class="btn gold sm" style="cursor:pointer">Upload registration form (PDF)<input type="file" id="p-import" accept="application/pdf" style="display:none" onchange="importPartnerForm(event)"></label>
           <span id="p-import-status" class="import-status"></span>
         </div>
       </div>
-      <div class="note">Access is granted only after the onboarding sequence: NCNDA → Cooperation &amp; Group Representation Agreement → Agency Agreement → materials → CRM training. Anything left blank can be completed later in the partner card.</div>
+      <div class="note">${ind?"An individual partner sells in their own name as a self-employed introducer. Access is granted only after the onboarding sequence: NCNDA → Cooperation &amp; Group Representation Agreement → Agency Agreement → materials → CRM training.":"Access is granted only after the onboarding sequence: NCNDA → Cooperation &amp; Group Representation Agreement → Agency Agreement → materials → CRM training."} Anything left blank can be completed later in the partner card.</div>
       <div class="grid2">
+        ${ind?`
+        <div class="fld"><label>Full name *</label><input id="p-name" placeholder="First and last name"></div>
+        <div class="fld"><label>Name as it appears on the ID document</label><input id="p-legal"></div>
+        <div class="fld"><label>Date of birth</label><input id="p-dob" type="date"></div>
+        <div class="fld"><label>Nationality</label><input id="p-nat"></div>
+        <div class="fld"><label>Personal ID / birth number</label><input id="p-pid"></div>
+        <div class="fld"><label>ID document type &amp; number</label><input id="p-idnum" placeholder="e.g. Passport SK1234567"></div>
+        <div class="fld" style="grid-column:1/-1"><label>Residential address</label><input id="p-addr" placeholder="Street, number, postal code, city, country"></div>
+        <div class="fld"><label>City</label><input id="p-city"></div>
+        <div class="fld"><label>Country of residence</label><input id="p-country"></div>
+        <div class="fld"><label>Self-employed / trade licence no. (if any)</label><input id="p-ico"></div>
+        <div class="fld"><label>Tax number (DIČ / TIN)</label><input id="p-dico"></div>
+        <div class="fld"><label>VAT number (if registered)</label><input id="p-vat"></div>
+        <div class="fld"><label>Website / social profile</label><input id="p-web"></div>
+        <div class="fld"><label>Bank name</label><input id="p-bank"></div>
+        <div class="fld"><label>IBAN (personal account)</label><input id="p-iban"></div>
+        <div class="fld"><label>E-mail *</label><input id="p-email"></div>
+        <div class="fld"><label>Mobile phone</label><input id="p-phone"></div>
+        `:`
+        <div class="fld"><label>Trading name *</label><input id="p-name"></div>
+        <div class="fld"><label>Full legal name</label><input id="p-legal"></div>
+        <div class="fld" style="grid-column:1/-1"><label>Registered address</label><input id="p-addr" placeholder="Street, number, postal code, city, country"></div>
+        <div class="fld"><label>City</label><input id="p-city"></div>
+        <div class="fld"><label>Country</label><input id="p-country"></div>
+        <div class="fld"><label>Identification number (IČO)</label><input id="p-ico"></div>
+        <div class="fld"><label>Tax number (DIČ)</label><input id="p-dico"></div>
+        <div class="fld"><label>VAT number</label><input id="p-vat"></div>
+        <div class="fld"><label>Website</label><input id="p-web"></div>
+        <div class="fld"><label>Bank name</label><input id="p-bank"></div>
+        <div class="fld"><label>IBAN</label><input id="p-iban"></div>
+        <div class="fld"><label>Company e-mail</label><input id="p-email"></div>
+        <div class="fld"><label>Company phone</label><input id="p-phone"></div>
+        `}
+        <div class="fld" style="grid-column:1/-1"><label>Territory / markets covered</label><input id="p-terr" placeholder="e.g. Slovakia, Poland"></div>
+        <div class="fld"><label>Retained in-house (%)</label><input id="p-ret" type="number" step="0.5" value="${gs.retentionPct}"></div>
+        <div class="fld"><label>Division rate (%)</label><input id="p-split" type="number" step="0.5" value="${gs.splitPct}"></div>
+      </div>
         <div class="fld"><label>Trading name *</label><input id="p-name"></div>
         <div class="fld"><label>Full legal name</label><input id="p-legal"></div>
         <div class="fld" style="grid-column:1/-1"><label>Registered address</label><input id="p-addr" placeholder="Street, number, postal code, city, country"></div>
@@ -2790,12 +2830,13 @@ function openPartnerForm(){
         <div class="fld"><label>Retained in-house (%)</label><input id="p-ret" type="number" step="0.5" value="${gs.retentionPct}"></div>
         <div class="fld"><label>Division rate (%)</label><input id="p-split" type="number" step="0.5" value="${gs.splitPct}"></div>
       </div>
+      ${ind?`<div class="fld" style="display:none"><input id="p-sig-name"><input id="p-sig-role"><input id="p-sig-email"></div>`:`
       <h4 class="pc-lab">Signatory</h4>
       <div class="grid3">
         <div class="fld"><label>Name</label><input id="p-sig-name"></div>
         <div class="fld"><label>Role</label><input id="p-sig-role" placeholder="e.g. Konateľ"></div>
         <div class="fld"><label>E-mail</label><input id="p-sig-email"></div>
-      </div>
+      </div>`}
       <div class="fld"><label>Internal note</label><input id="p-note" placeholder="e.g. Agency Agreement reference, territory, commission notice"></div>
     </div>
     <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePartner()">Add partner</button></div>
@@ -2803,19 +2844,37 @@ function openPartnerForm(){
 }
 function savePartner(){
   const g=s=>($(s)?$(s).value.trim():"");
-  const n=g("#p-name");if(!n){alert("Trading name is required.");return}
+  const kind=($("#p-kind")&&$("#p-kind").value)||"company";
+  const ind=kind==="individual";
+  const n=g("#p-name");if(!n){alert(ind?"Full name is required.":"Trading name is required.");return}
   const id="P"+Math.random().toString(36).slice(2,7);
   const people=[];
-  if(g("#p-sig-name"))people.push({name:g("#p-sig-name"),role:g("#p-sig-role")||"Signatory",email:g("#p-sig-email"),phone:"",signatory:true});
-  DB.partners.push({id,name:n,legalName:g("#p-legal"),address:g("#p-addr"),city:g("#p-city"),country:g("#p-country"),
+  if(ind){
+    // an individual partner is their own contact and signatory
+    people.push({name:n,role:"Individual partner",email:g("#p-email"),phone:g("#p-phone"),signatory:true});
+  }else if(g("#p-sig-name")){
+    people.push({name:g("#p-sig-name"),role:g("#p-sig-role")||"Signatory",email:g("#p-sig-email"),phone:"",signatory:true});
+  }
+  DB.partners.push({id,kind,name:n,legalName:g("#p-legal"),address:g("#p-addr"),city:g("#p-city"),country:g("#p-country"),
     ico:g("#p-ico"),dico:g("#p-dico"),vat:g("#p-vat"),iban:g("#p-iban"),bank:g("#p-bank"),email:g("#p-email"),phone:g("#p-phone"),web:g("#p-web"),
+    dob:g("#p-dob"),nationality:g("#p-nat"),personalId:g("#p-pid"),idDoc:g("#p-idnum"),
     ncndaRef:"",cgraRef:"",agreementRef:"",signedAt:"",territory:g("#p-terr"),
     retentionPct:+$("#p-ret").value||10,splitPct:+$("#p-split").value||50,
     note:g("#p-note"),people});
-  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Partner company added: ${n} — division rate ${+$("#p-split").value||50}%.`});
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${ind?"Individual partner":"Partner company"} added: ${n} — division rate ${+$("#p-split").value||50}%.`});
   save();closeModal();render();openPartnerCard(id,"profile");
 }
 /* ---- import a completed Partner Registration Form (fillable PDF) ---- */
+function isoDate(s){
+  if(!s)return "";
+  const t=String(s).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(t))return t;
+  let m=t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);           // 18/08/2026 or 18.08.2026
+  if(m)return `${m[3]}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
+  const d=new Date(t);                                                 // "18 Aug 2026"
+  if(!isNaN(d.getTime()))return d.toISOString().slice(0,10);
+  return "";
+}
 async function importPartnerForm(ev){
   const file=ev.target.files&&ev.target.files[0]; if(!file)return;
   const st=$("#p-import-status"); const set=(t,cls)=>{if(st){st.textContent=t;st.className="import-status "+(cls||"");}};
@@ -2834,30 +2893,44 @@ async function importPartnerForm(ev){
     if(!Object.keys(V).length){set("This PDF has no form fields — it may be a scan or a printout. Please enter the details manually.","err");return;}
     const setv=(sel,val,onlyIfEmpty)=>{const el=$(sel);if(!el||!val)return false;if(onlyIfEmpty&&el.value.trim())return false;el.value=val;return true;};
     let n=0;
-    // company
-    if(setv("#p-name", V.coTrade||V.coLegal))n++;
-    if(setv("#p-legal", V.coLegal))n++;
-    const addr=[V.coAddr,V.coZip].filter(Boolean).join(", ");
+    const isInd=($("#p-kind")&&$("#p-kind").value)==="individual";
+    // individual-specific identity fields (from the Individual Partner Registration Form)
+    if(isInd){
+      if(setv("#p-name", V.inName||[V.inFirst,V.inLast].filter(Boolean).join(" ")||V.coTrade||V.coLegal))n++;
+      if(setv("#p-legal", V.inIdName||V.inName))n++;
+      if(setv("#p-dob", isoDate(V.inDob)))n++;
+      if(setv("#p-nat", V.inNat))n++;
+      if(setv("#p-pid", V.inPid))n++;
+      if(setv("#p-idnum", [V.inIdType,V.inIdNo].filter(Boolean).join(" ")))n++;
+      if(setv("#p-ico", V.inTrade))n++;
+      if(setv("#p-dico", V.inTax||V.coTax))n++;
+      if(setv("#p-vat", V.inVat||V.coVat))n++;
+      if(setv("#p-web", V.inWeb||V.coWeb))n++;
+      if(setv("#p-email", V.inEmail||V.p1Email))n++;
+      if(setv("#p-phone", V.inPhone||V.p1Phone))n++;
+    }else{
+      if(setv("#p-name", V.coTrade||V.coLegal))n++;
+      if(setv("#p-legal", V.coLegal))n++;
+      if(setv("#p-ico", V.coReg))n++;
+      if(setv("#p-dico", V.coTax))n++;
+      if(setv("#p-vat", V.coVat))n++;
+      if(setv("#p-web", V.coWeb))n++;
+      if(setv("#p-sig-name", V.p1Name||V.sgName))n++;
+      if(setv("#p-sig-role", V.p1Pos||V.sgPos))n++;
+      if(setv("#p-sig-email", V.p1Email))n++;
+      if(setv("#p-email", V.p1Email, true))n++;
+      if(setv("#p-phone", V.p1Phone, true))n++;
+    }
+    // shared: address, banking, territory
+    const addr=[V.inAddr||V.coAddr, V.inZip||V.coZip].filter(Boolean).join(", ");
     if(setv("#p-addr", addr))n++;
-    if(setv("#p-city", V.coCity))n++;
-    if(setv("#p-country", V.coCountry))n++;
-    if(setv("#p-ico", V.coReg))n++;
-    if(setv("#p-dico", V.coTax))n++;
-    if(setv("#p-vat", V.coVat))n++;
-    if(setv("#p-web", V.coWeb))n++;
-    // banking
+    if(setv("#p-city", V.inCity||V.coCity))n++;
+    if(setv("#p-country", V.inCountry||V.coCountry))n++;
     if(setv("#p-bank", V.bkName))n++;
     if(setv("#p-iban", V.bkIban))n++;
-    // territory checkboxes
     const TERR=["Slovakia","Czech Republic","Poland","Hungary"];
     const terr=TERR.filter((_,i)=>V["terr_"+i]===true);
     if(terr.length&&setv("#p-terr", terr.join(", ")))n++;
-    // primary contact -> signatory + company contact
-    if(setv("#p-sig-name", V.p1Name||V.sgName))n++;
-    if(setv("#p-sig-role", V.p1Pos||V.sgPos))n++;
-    if(setv("#p-sig-email", V.p1Email))n++;
-    if(setv("#p-email", V.p1Email, true))n++;
-    if(setv("#p-phone", V.p1Phone, true))n++;
     // extras with no dedicated field -> internal note
     const LANG=["English","Slovak","Czech","Polish","Hungarian","Russian"];
     const langs=LANG.filter((_,i)=>V["lang_"+i]===true);
@@ -3321,11 +3394,11 @@ function openPartnerCard(pid,tab){
   const paidOut=DB.settlements.filter(s=>s.partnerId===pid&&s.paid&&!s.clawback).reduce((a,s)=>a+s.amount,0);
   const due=pl.reduce((s,l)=>s+commDueNow(l),0);
   const hold=pl.reduce((s,l)=>s+commOnHold(l),0);
-  const tabs=[["profile","Company & agreement"],["docs","Signed documents"],["people","People"],["access","Logins"],["economics","Economics"],["activity","Activity"]];
+  const tabs=[["profile",p.kind==="individual"?"Person & agreement":"Company & agreement"],["docs","Signed documents"],["people","People"],["access","Logins"],["economics","Economics"],["activity","Activity"]];
   openModal(`<div class="modal-box" style="width:min(1000px,100%)">
     <div class="modal-h">
       <div><h3 class="serif">${esc(p.name)}</h3>
-      <div style="font-size:11.5px;color:rgba(246,242,233,.7);margin-top:2px">${esc([p.city,p.country].filter(Boolean).join(", ")||"—")}${p.ico?` · IČO ${esc(p.ico)}`:""}${p.dico?` · DIČ ${esc(p.dico)}`:""}</div></div>
+      <div style="font-size:11.5px;color:rgba(246,242,233,.7);margin-top:2px">${p.kind==="individual"?"Individual partner · ":""}${esc([p.city,p.country].filter(Boolean).join(", ")||"—")}${p.kind==="individual"?(p.personalId?` · ID ${esc(p.personalId)}`:""):(p.ico?` · IČO ${esc(p.ico)}`:"")}${p.dico?` · DIČ ${esc(p.dico)}`:""}</div></div>
       <button class="dr-x" onclick="closeModal()">×</button>
     </div>
     <div class="modal-b">
@@ -3347,27 +3420,34 @@ function openPartnerCard(pid,tab){
 }
 function pcBody(p,tab,pl,users,deals){
   const ro=!isStaff();
-  if(tab==="profile")return `
+  if(tab==="profile"){
+   const isInd=p.kind==="individual";
+   return `
     <div class="note">Everything the group holds on this counterparty. ${ro?"Read-only — Boran&Co maintains these records.":"Editable here; the division rate applies to every future settlement."}</div>
     <h4 class="pc-lab">Identification</h4>
     <div class="grid2">
-      <div class="fld"><label>Trading name</label><input id="pf-name" value="${esc(p.name)}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Full legal name</label><input id="pf-legal" value="${esc(p.legalName||"")}" ${ro?"disabled":""}></div>
-      <div class="fld" style="grid-column:1/-1"><label>Registered address</label><input id="pf-addr" value="${esc(p.address||"")}" placeholder="Street, number, postal code, city, country" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Full name":"Trading name"}</label><input id="pf-name" value="${esc(p.name)}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Name on the ID document":"Full legal name"}</label><input id="pf-legal" value="${esc(p.legalName||"")}" ${ro?"disabled":""}></div>
+      ${isInd?`
+      <div class="fld"><label>Date of birth</label><input id="pf-dob" type="date" value="${esc(p.dob||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>Nationality</label><input id="pf-nat" value="${esc(p.nationality||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>Personal ID / birth number</label><input id="pf-pid" value="${esc(p.personalId||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>ID document</label><input id="pf-idnum" value="${esc(p.idDoc||"")}" ${ro?"disabled":""}></div>`:""}
+      <div class="fld" style="grid-column:1/-1"><label>${isInd?"Residential address":"Registered address"}</label><input id="pf-addr" value="${esc(p.address||"")}" placeholder="Street, number, postal code, city, country" ${ro?"disabled":""}></div>
       <div class="fld"><label>City</label><input id="pf-city" value="${esc(p.city||"")}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Country</label><input id="pf-country" value="${esc(p.country||"")}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Identification number (IČO)</label><input id="pf-ico" value="${esc(p.ico||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Country of residence":"Country"}</label><input id="pf-country" value="${esc(p.country||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Trade licence no. (if any)":"Identification number (IČO)"}</label><input id="pf-ico" value="${esc(p.ico||"")}" ${ro?"disabled":""}></div>
       <div class="fld"><label>Tax number (DIČ)</label><input id="pf-dico" value="${esc(p.dico||"")}" ${ro?"disabled":""}></div>
       <div class="fld"><label>VAT number (IČ DPH)</label><input id="pf-vat" value="${esc(p.vat||"")}" ${ro?"disabled":""}></div>
       <div class="fld"><label>Territory</label><input id="pf-terr" value="${esc(p.territory||"")}" ${ro?"disabled":""}></div>
     </div>
     <h4 class="pc-lab">Banking &amp; contact</h4>
     <div class="grid2">
-      <div class="fld"><label>IBAN</label><input id="pf-iban" value="${esc(p.iban||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>IBAN${isInd?" (personal account)":""}</label><input id="pf-iban" value="${esc(p.iban||"")}" ${ro?"disabled":""}></div>
       <div class="fld"><label>Bank</label><input id="pf-bank" value="${esc(p.bank||"")}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Company e-mail</label><input id="pf-email" value="${esc(p.email||"")}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Company phone</label><input id="pf-phone" value="${esc(p.phone||"")}" ${ro?"disabled":""}></div>
-      <div class="fld"><label>Website</label><input id="pf-web" value="${esc(p.web||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"E-mail":"Company e-mail"}</label><input id="pf-email" value="${esc(p.email||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Mobile phone":"Company phone"}</label><input id="pf-phone" value="${esc(p.phone||"")}" ${ro?"disabled":""}></div>
+      <div class="fld"><label>${isInd?"Website / social profile":"Website"}</label><input id="pf-web" value="${esc(p.web||"")}" ${ro?"disabled":""}></div>
       <div class="fld"><label>Signed on</label><input id="pf-signed" type="date" value="${esc(p.signedAt||"")}" ${ro?"disabled":""}></div>
     </div>
     <h4 class="pc-lab">Contractual chain</h4>
@@ -3383,6 +3463,7 @@ function pcBody(p,tab,pl,users,deals){
       <div class="fld" style="display:flex;align-items:flex-end"><p style="font-size:11px;color:var(--ink-soft)">On a 2% corridor fee this partner effectively earns <b>${(2*(1-retPct(p.id)/100)*splitPct(p.id)/100).toFixed(2)}%</b> of contract value.</p></div>
     </div>
     <div class="fld"><label>Internal note</label><textarea id="pf-note" rows="2" ${ro?"disabled":""}>${esc(p.note||"")}</textarea></div>`;
+  }
 
   if(tab==="docs"){
     const need=PART_DOCS.filter(s=>s.need), got=need.filter(s=>(p.docs||[]).some(d=>d.slot===s.slot));
@@ -3479,6 +3560,7 @@ function savePartnerCard(pid){
     ico:g("#pf-ico"),dico:g("#pf-dico"),vat:g("#pf-vat"),territory:g("#pf-terr"),
     iban:g("#pf-iban"),bank:g("#pf-bank"),email:g("#pf-email"),phone:g("#pf-phone"),web:g("#pf-web"),signedAt:g("#pf-signed"),
     ncndaRef:g("#pf-ncnda"),cgraRef:g("#pf-cgra"),agreementRef:g("#pf-aga"),
+    ...($("#pf-dob")?{dob:g("#pf-dob"),nationality:g("#pf-nat"),personalId:g("#pf-pid"),idDoc:g("#pf-idnum")}:{}),
     retentionPct:Math.min(100,Math.max(0,+$("#pf-ret").value||0)),
     splitPct:Math.min(100,Math.max(0,+$("#pf-split").value||0)),
     note:g("#pf-note")
