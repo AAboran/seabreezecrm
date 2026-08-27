@@ -744,8 +744,17 @@ function migrate(db){
   return db;
 }
 function load(){
-  try{const raw=localStorage.getItem(LS_KEY);if(raw){DB=migrate(JSON.parse(raw));save();return}}catch(e){}
-  DB=migrate(seed());save();
+  // NOTE: never call save() here — save() stamps a new version, which would make
+  // this device's copy look newer than the shared one and overwrite it on boot.
+  try{const raw=localStorage.getItem(LS_KEY);if(raw){DB=migrate(JSON.parse(raw));DB_FRESH=false;return}}catch(e){}
+  DB=migrate(seed());DB_FRESH=true;   // brand-new empty copy: must never overwrite the cloud
+}
+let DB_FRESH=false;
+function hasData(db){
+  if(!db)return false;
+  return (db.partners||[]).length>0||(db.leads||[]).length>0||(db.visits||[]).length>0||
+         (db.settlements||[]).length>0||(db.campaigns||[]).length>0||(db.archive||[]).length>0||
+         (db.users||[]).length>2;
 }
 let _cloudTimer=null;
 function stamp(){ try{DB._v=Math.max((DB._v||0)+1, Date.now()); DB._by=SESSION?SESSION.name:(DB._by||"");}catch(e){} }
@@ -766,6 +775,10 @@ async function cloudGet(){
 }
 async function cloudPush(){
   if(!CLOUD.on) return;
+  // Safety net: never publish an empty database over a shared copy that has data.
+  if(!hasData(DB)){
+    try{const chk=await cloudGet();if(chk&&chk.data&&hasData(chk.data)){CLOUD.status="synced";syncBadge();return}}catch(e){}
+  }
   const str=JSON.stringify(DB);
   if(str.length>40*1024*1024){ CLOUD.status="toolarge"; syncBadge(); return; }
   CLOUD.saving=true; CLOUD.status="saving"; syncBadge();
@@ -782,10 +795,23 @@ async function bootData(){
   const res=await cloudGet();
   if(res.error){ CLOUD.on=false; CLOUD.checked=true; CLOUD.status=(res.error==="not_configured")?"local":"offline"; syncBadge(); return; }
   CLOUD.on=true; const cloud=res.data;
-  if(cloud && (cloud._v||0) >= (DB._v||0)){
-    DB=migrate(cloud); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
-    CLOUD.status="synced";
-  }else{ await cloudPush(); }   // local newer or cloud empty → publish local
+  if(cloud){
+    // The shared copy always wins on boot unless this device holds a strictly
+    // newer version that did NOT come from a fresh/empty seed. This prevents a
+    // new device (or a cleared browser) from wiping everyone's data.
+    const localIsNewer = !DB_FRESH && (DB._v||0) > (cloud._v||0);
+    if(localIsNewer){ await cloudPush(); }
+    else{
+      if(hasData(DB)&&!hasData(cloud))snapshot("incoming copy was empty");
+      else if(hasData(DB))snapshot("before incoming changes");
+      DB=migrate(cloud); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+      CLOUD.status="synced";
+    }
+  }else{
+    // Nothing in the shared store yet. Only publish if we actually have data.
+    if(!DB_FRESH && hasData(DB)) await cloudPush();
+    else CLOUD.status="synced";
+  }
   CLOUD.checked=true; syncBadge();
   if(SESSION) render();
 }
@@ -801,6 +827,7 @@ async function pollSync(silent){
   const res=await cloudGet();
   if(res.error){ CLOUD.status="offline"; syncBadge(); return; }
   if(res.data && (res.data._v||0) > (DB._v||0) && !busyEditing()){
+    snapshot("before incoming changes");
     DB=migrate(res.data); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
     CLOUD.status="synced"; if(SESSION) render(); toast("Updated with the latest changes from your team.");
   }else{ CLOUD.status="synced"; }
@@ -1041,6 +1068,7 @@ function topActions(){
   if(VIEW==="visits"&&isStaff())h+=`<button class="btn sm" onclick="openVisitForm()">+ Departure</button>`;
   if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm('company')">+ Partner company</button><button class="btn sm" onclick="openPartnerForm('individual')">+ Individual partner</button><button class="btn ghost sm" onclick="openUserForm2(null,'partner')">+ User</button>`;
   if(isStaff())h+=`<button class="btn ghost sm" onclick="exportJSON()">Export</button>`;
+  if(isAdmin())h+=`<button class="btn ghost sm" onclick="openRestore()" title="Restore records from a backup or snapshot">Restore</button>`;
   a.innerHTML=h;
 }
 function render(){
@@ -3425,6 +3453,65 @@ function exportJSON(){
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
   a.download="boranco-crm-export-"+new Date().toISOString().slice(0,10)+".json";a.click();
+}
+/* ---------- restore & safety snapshots ---------- */
+const SNAP_KEY="boranco_crm_snapshots";
+function snapshot(reason){
+  try{
+    if(!hasData(DB))return;                      // never snapshot an empty copy
+    const list=JSON.parse(localStorage.getItem(SNAP_KEY)||"[]");
+    list.unshift({ts:new Date().toISOString(),reason:reason||"",db:DB});
+    while(list.length>3)list.pop();              // keep the last 3
+    localStorage.setItem(SNAP_KEY,JSON.stringify(list));
+  }catch(e){}
+}
+function listSnapshots(){try{return JSON.parse(localStorage.getItem(SNAP_KEY)||"[]")}catch(e){return[]}}
+function openRestore(){
+  if(!isAdmin()){alert("Only an administrator can restore data.");return}
+  const snaps=listSnapshots();
+  openModal(`<div class="modal-box" style="width:min(680px,100%)">
+    <div class="modal-h"><h3 class="serif">Restore data</h3><button class="dr-x" onclick="closeModal()">×</button></div>
+    <div class="modal-b">
+      <div class="note">Use this if records have gone missing. Restoring replaces what is currently in the CRM and, if shared storage is on, publishes the restored copy to everyone.</div>
+      <h4 class="pc-lab">From a file you exported</h4>
+      <p style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Choose a <b>boranco-crm-export-….json</b> file saved earlier with the Export button.</p>
+      <label class="btn gold sm" style="cursor:pointer">Choose backup file<input type="file" id="rs-file" accept="application/json,.json" style="display:none" onchange="restoreFromFile(event)"></label>
+      <span id="rs-status" class="import-status"></span>
+      <h4 class="pc-lab" style="margin-top:18px">Automatic snapshots on this device</h4>
+      ${snaps.length?`<div>${snaps.map((s,i)=>`<div class="docrow">
+        <div><div class="dl">${fmtDT(s.ts)}</div><div class="dm">${(s.db.partners||[]).length} partner(s) · ${(s.db.leads||[]).length} lead(s)${s.reason?" · "+esc(s.reason):""}</div></div>
+        <button class="btn ghost sm" onclick="restoreSnapshot(${i})">Restore this</button>
+      </div>`).join("")}</div>`:`<div class="empty" style="padding:16px"><b>No snapshots on this device yet</b>A snapshot is kept automatically before incoming changes replace your data.</div>`}
+    </div>
+    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Close</button></div>
+  </div>`);
+}
+function applyRestore(obj,label){
+  if(!obj||typeof obj!=="object"||!Array.isArray(obj.users)){alert("That file does not look like a Boran&Co CRM backup.");return false}
+  if(!confirm(`Restore ${label}?\n\nThis replaces the records currently in the CRM${CLOUD.on?" and publishes the restored copy to everyone":""}.`))return false;
+  snapshot("before restore");
+  DB=migrate(obj);
+  DB._v=Date.now();                              // restored copy becomes the newest
+  DB_FRESH=false;
+  try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+  if(CLOUD.on)cloudPush();
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION?SESSION.name:"",text:`Data restored from ${label}.`});
+  closeModal();render();toast("Data restored.");
+  return true;
+}
+function restoreFromFile(ev){
+  const f=ev.target.files&&ev.target.files[0]; if(!f)return;
+  const st=$("#rs-status");
+  const r=new FileReader();
+  r.onload=()=>{
+    try{applyRestore(JSON.parse(r.result),"the file "+f.name)}
+    catch(e){if(st){st.textContent="That file could not be read as a backup.";st.className="import-status err"}}
+  };
+  r.readAsText(f); ev.target.value="";
+}
+function restoreSnapshot(i){
+  const s=listSnapshots()[i]; if(!s)return;
+  applyRestore(s.db,"the snapshot from "+fmtDT(s.ts));
 }
 
 /* ---------- boot ---------- */
