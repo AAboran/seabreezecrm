@@ -39,7 +39,7 @@ module.exports = async function handler(req, res) {
       const db = body && body.data;
       if (db == null) { res.status(400).json({ error: "no_data" }); return; }
       const str = JSON.stringify(db);
-      if (str.length > 1000000) { res.status(200).json({ error: "too_large" }); return; }
+      if (str.length > 40 * 1024 * 1024) { res.status(200).json({ error: "too_large" }); return; }
       await cmd(["SET", KEY, str]);
       res.status(200).json({ ok: true, v: (db && db._v) || 0 });
       return;
