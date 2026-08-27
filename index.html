@@ -472,6 +472,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
 .btn.danger:hover{background:rgba(160,38,38,.08);border-color:var(--bad)}
 .doc-x{transition:background .12s ease,color .12s ease}
 .doc-x:hover{background:rgba(160,38,38,.1);color:var(--bad)}
+.doc-e{background:none;border:none;color:var(--navy);font-size:13px;padding:0 4px;cursor:pointer;transition:background .12s ease,color .12s ease}
+.doc-e:hover{background:rgba(194,162,87,.16);color:var(--gold-dark,#9A7B2E)}
 
 .import-box{display:flex;gap:13px;align-items:flex-start;border:1px solid var(--gold);background:rgba(194,162,87,.09);padding:14px 16px;margin-bottom:14px;border-radius:3px}
 .import-ico{flex-shrink:0;width:30px;height:30px;display:flex;align-items:center;justify-content:center}
@@ -3549,7 +3551,7 @@ function pcBody(p,tab,pl,users,deals){
       <div><b>${esc(x.name)}</b>${x.signatory?' <span class="tag gold">Signatory</span>':""}<div class="pn">${esc(x.role||"—")}</div></div>
       <div class="pn">${esc(x.email||"—")}${x.phone?` · ${esc(x.phone)}`:""}</div>
       <div>${DB.users.some(u=>u.partnerId===p.id&&u.name===x.name)?`<span class="tag ok">Has a login</span>`:isAdmin()?`<button class="btn ghost sm" onclick="createLogin('${p.id}',${i})">Create login</button>`:`<span class="tag line">No login</span>`}</div>
-      ${isStaff()?`<button class="doc-x" onclick="delPerson('${p.id}',${i})">✕</button>`:"<span></span>"}
+      ${isStaff()?`<span style="display:flex;gap:4px;align-items:center"><button class="doc-e" title="Edit this person" onclick="openPersonEdit('${p.id}',${i})">✎</button><button class="doc-x" title="Remove this person" onclick="delPerson('${p.id}',${i})">✕</button></span>`:"<span></span>"}
     </div>`).join(""):`<div class="empty" style="padding:20px"><b>No people recorded yet</b>Add the signatory first.</div>`}
     ${isStaff()?`<div class="vedit" style="margin-top:12px"><b>Add a person</b>
       <div class="grid4">
@@ -3637,6 +3639,45 @@ function addPerson(pid){
   p.people.push({name,role:g("#pp-role"),email:g("#pp-email"),phone:g("#pp-phone"),signatory:$("#pp-sig").checked});
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${p.name}: ${name} added to the company record.`});
   save();openPartnerCard(pid,"people");
+}
+function openPersonEdit(pid,i){
+  if(!isStaff())return;
+  const p=partnerOf(pid),x=(p.people||[])[i];if(!x)return;
+  const hasLogin=DB.users.some(u=>u.partnerId===pid&&u.name===x.name);
+  openModal(`<div class="modal-box" style="width:min(640px,100%)">
+    <div class="modal-h"><h3 class="serif">Edit — ${esc(x.name)}</h3><button class="dr-x" onclick="closeModal()">×</button></div>
+    <div class="modal-b">
+      <div class="note">Update this person's details. ${hasLogin?"This person has a CRM login — changing the name here updates the account name too, but the username and access code stay the same.":"Nothing is added twice: this edits the existing entry on the company record."}</div>
+      <div class="grid2">
+        <div class="fld"><label>Full name *</label><input id="pe-name" value="${esc(x.name)}"></div>
+        <div class="fld"><label>Role / position</label><input id="pe-role" value="${esc(x.role||"")}" placeholder="e.g. Konateľ, sales lead"></div>
+        <div class="fld"><label>E-mail</label><input id="pe-email" value="${esc(x.email||"")}"></div>
+        <div class="fld"><label>Phone</label><input id="pe-phone" value="${esc(x.phone||"")}"></div>
+      </div>
+      <label style="font-size:11.5px;color:var(--ink-soft);display:block;margin-top:4px"><input type="checkbox" id="pe-sig" style="width:auto;margin-right:7px" ${x.signatory?"checked":""}>Authorised signatory</label>
+    </div>
+    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson('${pid}',${i})">Save changes</button></div>
+  </div>`);
+}
+function savePerson(pid,i){
+  if(!isStaff())return;
+  const p=partnerOf(pid),x=(p.people||[])[i];if(!x)return;
+  const g=s=>($(s)?$(s).value.trim():"");
+  const name=g("#pe-name");if(!name){alert("A name is required.");return}
+  const oldName=x.name;
+  const changes=[];
+  if(name!==oldName)changes.push("name");
+  if(g("#pe-role")!==(x.role||""))changes.push("role");
+  if(g("#pe-email")!==(x.email||""))changes.push("e-mail");
+  if(g("#pe-phone")!==(x.phone||""))changes.push("phone");
+  if($("#pe-sig").checked!==!!x.signatory)changes.push("signatory status");
+  Object.assign(x,{name,role:g("#pe-role"),email:g("#pe-email"),phone:g("#pe-phone"),signatory:$("#pe-sig").checked});
+  // keep a linked CRM login in step when the name changes
+  if(name!==oldName){
+    DB.users.filter(u=>u.partnerId===pid&&u.name===oldName).forEach(u=>{u.name=name});
+  }
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${p.name}: ${name} updated on the company record${changes.length?` (${changes.join(", ")})`:""}.`});
+  save();closeModal();openPartnerCard(pid,"people");
 }
 function delPerson(pid,i){
   const p=partnerOf(pid),x=p.people[i];
