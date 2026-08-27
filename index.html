@@ -644,7 +644,7 @@ const UNITS = ["Apartment","Villa","Townhouse","Commercial","Land / plot","Undec
 const INTENTS = ["Investment","Personal use","Mixed"];
 const TIMELINES = ["0–3 months","3–6 months","6–12 months","12+ months"];
 const CHANNELS = ["Own network","Referral","Event / seminar","Social media","Paid advertising","Website","Other"];
-const MAX_FILE = 1.5*1024*1024; // localStorage prototype limit per file
+const MAX_FILE = 8*1024*1024; // maximum size for a single uploaded file
 
 /* All countries of the world — V4 territory first */
 const V4=["Slovakia","Czech Republic","Poland","Hungary"];
@@ -765,7 +765,7 @@ async function cloudGet(){
 async function cloudPush(){
   if(!CLOUD.on) return;
   const str=JSON.stringify(DB);
-  if(str.length>950000){ CLOUD.status="toolarge"; syncBadge(); return; }
+  if(str.length>40*1024*1024){ CLOUD.status="toolarge"; syncBadge(); return; }
   CLOUD.saving=true; CLOUD.status="saving"; syncBadge();
   try{
     const r=await fetch("/api/data",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:DB})});
@@ -811,7 +811,7 @@ function toast(msg){
   let t=$("#toast"); if(!t){t=document.createElement("div");t.id="toast";document.body.appendChild(t);}
   t.textContent=msg; t.classList.add("on"); clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>t.classList.remove("on"),3200);
 }
-const SYNC_TXT={local:"This device only",offline:"Offline — saved on this device",saving:"Saving…",synced:"Shared · all devices",toolarge:"File too large to share",error:"Sync error"};
+const SYNC_TXT={local:"This device only",offline:"Offline — saved on this device",saving:"Saving…",synced:"Shared · all devices",toolarge:"Too large to share — reduce file sizes",error:"Sync error"};
 function syncBadge(){
   const el=$("#sync-badge"); if(!el)return;
   const s=CLOUD.status;
@@ -1648,7 +1648,7 @@ function rSettleCommission(){
       <td>${esc(s.leadName)}</td>
       <td><b>${eur(s.amount)}</b>${s.paidAmount&&s.paidAmount!==s.amount?`<div style="font-size:10.5px;color:var(--ink-soft)">paid ${eur(s.paidAmount)}</div>`:""}</td>
       <td>${s.clawback?`<span class="tag bad">Clawback</span>`:s.paid?`<span class="tag ok">Paid ${fmtD(s.paidDate)}</span>`:s.confirmed?`<span class="tag gold">Confirmed — payable</span>`:`<span class="tag line">Awaiting konateľ</span>`}</td>
-      <td>${s.proof?`<a class="filechip" href="${s.proof.data}" download="${esc(s.proof.name)}">⬇ ${esc(s.proof.name)}</a>`:s.paid?`<span style="font-size:11px;color:var(--warn)">no file attached</span>`:"—"}</td>
+      <td>${s.proof?`${fileLink(s.proof)}`:s.paid?`<span style="font-size:11px;color:var(--warn)">no file attached</span>`:"—"}</td>
       <td style="white-space:nowrap">
         ${!s.confirmed&&!s.clawback?`<button class="btn sm" onclick="stmtConfirm('${s.id}')">Konateľ confirm</button>`:""}
         ${s.confirmed&&!s.paid&&!s.clawback?`<button class="btn gold sm" onclick="openPayForm('${s.id}')">Pay &amp; attach proof</button><button class="btn ghost sm" onclick="stmtUnconfirm('${s.id}')">Rewind confirmation</button>`:""}
@@ -1673,7 +1673,7 @@ function rSettleStatements(){
       <td>${s.splitPct!=null?s.splitPct+"%":"—"}</td>
       <td><b>${eur(s.amount)}</b></td>
       <td>${s.clawback?`<span class="tag bad">Clawback</span>`:s.paid?`<span class="tag ok">Paid ${fmtD(s.paidDate)}</span>`:s.confirmed?`<span class="tag gold">Confirmed</span>`:`<span class="tag line">Draft</span>`}</td>
-      <td>${s.proof?`<a class="filechip" href="${s.proof.data}" download="${esc(s.proof.name)}">⬇ file</a>`:"—"}</td>
+      <td>${s.proof?`${fileLink(s.proof,`file`)}`:"—"}</td>
       <td style="white-space:nowrap">
         ${!s.confirmed&&!s.clawback?`<button class="btn sm" onclick="stmtConfirm('${s.id}')">Confirm</button>`:""}
         ${s.confirmed&&!s.paid&&!s.clawback?`<button class="btn gold sm" onclick="openPayForm('${s.id}')">Pay</button>`:""}
@@ -1715,7 +1715,7 @@ function rSettleMine(){
       <td><b>${eur(s.amount)}</b></td>
       <td>${s.paid?`<span class="tag ok">Paid</span>`:s.confirmed?`<span class="tag gold">Confirmed — payable</span>`:`<span class="tag line">In preparation</span>`}</td>
       <td style="font-size:11.5px">${s.paid?`${fmtD(s.paidDate)}${s.payRef?`<div style="font-size:10.5px;color:var(--ink-soft)">${esc(s.payRef)}</div>`:""}`:"—"}</td>
-      <td>${s.proof?`<a class="filechip" href="${s.proof.data}" download="${esc(s.proof.name)}">⬇ ${esc(s.proof.name)}</a>`:"—"}</td>
+      <td>${s.proof?`${fileLink(s.proof)}`:"—"}</td>
     </tr>`).join("")}</tbody></table></div>
     <div class="footnote">Statements total ${eur(Math.round(stated))}, of which ${eur(Math.round(paid))} has been received and ${eur(Math.round(dueFromUs))} is outstanding.</div>`
     :`<div class="empty" style="padding:22px"><b>No statements yet</b>A statement is raised as soon as commission has been earned on cleared funds.</div>`}
@@ -2091,7 +2091,7 @@ function openDrawer(id){
         <span class="k">Amount</span><span class="v">${eur(l.dep.amount)}</span>
         <span class="k">Date wired</span><span class="v">${fmtD(l.dep.date)}</span>
         <span class="k">Deposit use</span><span class="v">${l.travelFunding?`<span class="tag ${l.travelFunding==="deposit"?"gold":"ok"}">${FUNDING[l.travelFunding]}</span>`:`<span class="tag warn">Not decided</span>`}</span>
-        <span class="k">Deposit invoice</span><span class="v">${inv?`<a class="filechip" href="${inv.data}" download="${esc(inv.name)}">⬇ ${esc(inv.name)}</a>`:"— not uploaded"}</span>
+        <span class="k">Deposit invoice</span><span class="v">${inv?`${fileLink(inv)}`:"— not uploaded"}</span>
       </div>
       <div class="actions-row">
         <button class="btn ghost sm" onclick="uploadDoc('${l.id}','depinvoice')">${inv?"Replace invoice":"Upload deposit invoice"}</button>
@@ -2138,14 +2138,14 @@ function openDrawer(id){
           <div><div class="dl">${s.label}${s.need?' <span style="color:var(--gold)">*</span>':""}</div>
           ${d?`<div class="dm">Uploaded by ${esc(d.user)} · ${fmtDT(d.ts)} · ${kb(d.size)}</div>`:formOk?`<div class="dm">Satisfied by the form completed in the CRM</div>`:`<div class="dm">Not uploaded</div>`}</div>
           <div style="display:flex;gap:6px;align-items:center">
-            ${d?`<a class="filechip" href="${d.data}" download="${esc(d.name)}">⬇ ${esc(d.name)}</a><button class="doc-x" title="Remove" onclick="removeDoc('${l.id}','${d.id}')">✕</button>`
+            ${d?`${fileLink(d)}<button class="doc-x" title="Remove" onclick="removeDoc('${l.id}','${d.id}')">✕</button>`
                :`<button class="btn ghost sm" onclick="uploadDoc('${l.id}','${s.slot}')">Upload</button>`}
           </div>
         </div>`;
       }).join("")}
       ${l.docs.filter(d=>d.slot==="other").map(d=>`<div class="docrow">
         <div><div class="dl">Additional document</div><div class="dm">Uploaded by ${esc(d.user)} · ${fmtDT(d.ts)} · ${kb(d.size)}</div></div>
-        <div style="display:flex;gap:6px;align-items:center"><a class="filechip" href="${d.data}" download="${esc(d.name)}">⬇ ${esc(d.name)}</a><button class="doc-x" onclick="removeDoc('${l.id}','${d.id}')">✕</button></div>
+        <div style="display:flex;gap:6px;align-items:center">${fileLink(d)}<button class="doc-x" onclick="removeDoc('${l.id}','${d.id}')">✕</button></div>
       </div>`).join("")}
       <div class="actions-row" style="margin-top:10px">
         <button class="btn ghost sm" onclick="uploadDoc('${l.id}','other')">+ Additional document</button>
@@ -2195,7 +2195,7 @@ function openDrawer(id){
         <span class="k">Commission — paid out to partner</span><span class="v"><b>${eur(commGranted(l))}</b></span>
         <span class="k">Commission — cleared, payable</span><span class="v">${eur(commDueNow(l))}</span>
         <span class="k">Commission — on hold (awaiting payments)</span><span class="v">${eur(commOnHold(l))}</span>
-        <span class="k">Signed contract</span><span class="v">${l.contractFile?`<a class="filechip" href="${l.contractFile.data}" download="${esc(l.contractFile.name)}">⬇ ${esc(l.contractFile.name)}</a>`:"— not uploaded"}</span>
+        <span class="k">Signed contract</span><span class="v">${l.contractFile?`${fileLink(l.contractFile)}`:"— not uploaded"}</span>
         <span class="k">Settlement</span><span class="v">${esc(l.stmtRef||"—")} ${l.clawback?'<span class="tag bad">Clawback</span>':""}</span>
       </div>
       ${(l.installments||[]).length?`<div style="background:var(--paper);border:1px solid var(--hair);padding:11px 13px;margin-bottom:10px">
@@ -2255,7 +2255,7 @@ function frozenDrawer(l){
         <span class="k">Contract value</span><span class="v">${eur(l.contractVal)}</span>
         <span class="k">Collected from customer</span><span class="v">${eur(Math.round(collectedOf(l)))} · 100%</span>
         <span class="k">Corridor rate</span><span class="v">${corridorRate(l)}%</span>
-        <span class="k">Signed contract</span><span class="v">${l.contractFile?`<a class="filechip" href="${l.contractFile.data}" download="${esc(l.contractFile.name)}">⬇ ${esc(l.contractFile.name)}</a>`:"—"}</span>
+        <span class="k">Signed contract</span><span class="v">${l.contractFile?`${fileLink(l.contractFile)}`:"—"}</span>
         <span class="k">Property</span><span class="v">${(l.shortlistItems||[]).length?esc(l.shortlistItems.join(" / ")):"—"}</span>
       </div>
     </div>
@@ -2266,7 +2266,7 @@ function frozenDrawer(l){
         <span class="k">Partner commission paid</span><span class="v"><b>${eur(Math.round(totalPaid))}</b></span>
       </div>
       ${paid.length?`<table style="margin-top:10px"><thead><tr><th>Statement</th><th>Date paid</th><th>Amount</th><th>Reference</th><th>Confirmation</th></tr></thead><tbody>
-      ${paid.map(s=>`<tr><td><b>${esc(s.ref)}</b></td><td style="font-size:11.5px">${fmtD(s.paidDate)}</td><td>${eur(s.paidAmount||s.amount)}</td><td style="font-size:11.5px">${esc(s.payRef||"—")}</td><td>${s.proof?`<a class="filechip" href="${s.proof.data}" download="${esc(s.proof.name)}">⬇ file</a>`:"—"}</td></tr>`).join("")}
+      ${paid.map(s=>`<tr><td><b>${esc(s.ref)}</b></td><td style="font-size:11.5px">${fmtD(s.paidDate)}</td><td>${eur(s.paidAmount||s.amount)}</td><td style="font-size:11.5px">${esc(s.payRef||"—")}</td><td>${s.proof?`${fileLink(s.proof,`file`)}`:"—"}</td></tr>`).join("")}
       </tbody></table>`:""}
     </div>
     <div class="dr-sec">
@@ -2498,19 +2498,91 @@ function instUnconfirm(leadId,instId){
   log(l,`Sea Breeze confirmation rewound on ${i.label}.`);
   save();openDrawer(leadId);render();
 }
+/* ================= LARGE FILE STORE (IndexedDB) =================
+   Uploaded files are kept in IndexedDB, which allows far larger files than
+   localStorage (~5 MB total). Records only store a small reference, so the
+   shared database stays small and syncs quickly. */
+const FILE_DB="boranco_files", FILE_STORE="files";
+let _fdb=null;
+function fileDB(){
+  if(_fdb)return _fdb;
+  _fdb=new Promise((res,rej)=>{
+    try{
+      const rq=indexedDB.open(FILE_DB,1);
+      rq.onupgradeneeded=()=>{const db=rq.result;if(!db.objectStoreNames.contains(FILE_STORE))db.createObjectStore(FILE_STORE);};
+      rq.onsuccess=()=>res(rq.result);
+      rq.onerror=()=>rej(rq.error);
+    }catch(e){rej(e)}
+  });
+  return _fdb;
+}
+async function filePut(id,dataUrl){
+  const db=await fileDB();
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(FILE_STORE,"readwrite");
+    tx.objectStore(FILE_STORE).put(dataUrl,id);
+    tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error);
+  });
+}
+async function fileGet(id){
+  const db=await fileDB();
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(FILE_STORE,"readonly");
+    const rq=tx.objectStore(FILE_STORE).get(id);
+    rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error);
+  });
+}
+/* Resolve a stored document to a usable data URL, whether it lives in
+   IndexedDB (new uploads) or inline on the record (older uploads). */
+async function docData(d){
+  if(!d)return null;
+  if(d.data)return d.data;                 // legacy inline file
+  if(d.fileId){try{return await fileGet(d.fileId)}catch(e){return null}}
+  return null;
+}
+/* File links are rendered as openDoc('<key>') where <key> is registered in
+   FILE_REG at render time. This keeps filenames with quotes/apostrophes safe
+   and avoids embedding large data URLs into the HTML. */
+const FILE_REG=new Map();
+function fileLink(doc,label){
+  if(!doc)return "—";
+  const key="k"+(FILE_REG.size+1)+"_"+Math.random().toString(36).slice(2,7);
+  FILE_REG.set(key,doc);
+  return `<a class="filechip" href="#" onclick="openDoc('${key}');return false">⬇ ${esc(label||doc.name)}</a>`;
+}
+async function openDoc(key){
+  const doc=FILE_REG.get(key); if(!doc)return;
+  const data=await docData(doc);
+  if(!data){alert("This file was uploaded on another device and is not stored on this one.\n\nOpen it on the device where it was uploaded, or ask for it to be uploaded again.");return}
+  const a=document.createElement("a");
+  a.href=data; a.download=doc.name||"document"; document.body.appendChild(a); a.click(); a.remove();
+}
 function pickFile(cb){
   const i=document.createElement("input");i.type="file";
   i.onchange=()=>{const f=i.files[0];if(!f)return;
-    if(f.size>MAX_FILE){alert("Prototype limit: files up to 1.5 MB. Larger files belong on the server backend.");return}
-    const r=new FileReader();r.onload=()=>cb(f,r.result);r.readAsDataURL(f);};
+    if(f.size>MAX_FILE){alert("This file is "+kb(f.size)+". The maximum size for a single upload is 8 MB.\n\nIf the file is a scan, saving it as a smaller PDF or reducing the scan quality usually brings it well under the limit.");return}
+    const r=new FileReader();
+    r.onload=async()=>{
+      const data=r.result;
+      const fileId="F"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      try{
+        await filePut(fileId,data);
+        cb(f,{fileId});                    // stored in IndexedDB
+      }catch(e){
+        // IndexedDB unavailable (rare): fall back to inline, but only if small
+        if(f.size<=1.2*1024*1024)cb(f,{data});
+        else alert("This browser could not store a file that large.\n\nPlease try a smaller file (under 1 MB), or use a different browser.");
+      }
+    };
+    r.readAsDataURL(f);};
   i.click();
 }
 function uploadDoc(leadId,slot){
   const l=lead(leadId);
-  pickFile((f,data)=>{
+  pickFile((f,ref)=>{
     const label=SLOT_LABELS[slot]||"Additional document";
     if(slot!=="other"){const ex=l.docs.find(d=>d.slot===slot);if(ex)l.docs=l.docs.filter(d=>d.id!==ex.id)}
-    l.docs.push({id:"D"+Math.random().toString(36).slice(2,8),slot,label,name:f.name,size:f.size,data,ts:new Date().toISOString(),user:SESSION.name});
+    l.docs.push({id:"D"+Math.random().toString(36).slice(2,8),slot,label,name:f.name,size:f.size,...ref,ts:new Date().toISOString(),user:SESSION.name});
     log(l,`Document uploaded — ${label}: ${f.name}.`);
     save();openDrawer(leadId);render();
   });
@@ -2985,7 +3057,7 @@ function openContractForm(id,keepInst,draft){
       <div class="fld" style="margin-top:12px"><label>Comments — how the contract went</label><textarea id="c-notes" rows="3" placeholder="Negotiation notes, schedule agreed, special terms…">${esc(d.notes!==undefined?d.notes:l.contractNotes)}</textarea></div>
       <div class="fld"><label>Signed contract file</label>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          ${l.contractFile?`<a class="filechip" href="${l.contractFile.data}" download="${esc(l.contractFile.name)}">⬇ ${esc(l.contractFile.name)} · ${kb(l.contractFile.size)}</a>`:`<span style="font-size:12px;color:var(--ink-soft)">Not uploaded</span>`}
+          ${l.contractFile?`${fileLink(l.contractFile)}`:`<span style="font-size:12px;color:var(--ink-soft)">Not uploaded</span>`}
           <button class="btn ghost sm" onclick="uploadContract('${l.id}')">${l.contractFile?"Replace file":"Upload signed contract"}</button>
         </div>
       </div>
@@ -3092,8 +3164,8 @@ function splitApply(val){
 }
 function uploadContract(id){
   const l=lead(id);
-  pickFile((f,data)=>{
-    l.contractFile={name:f.name,size:f.size,data,ts:new Date().toISOString(),user:SESSION.name};
+  pickFile((f,ref)=>{
+    l.contractFile={name:f.name,size:f.size,...ref,ts:new Date().toISOString(),user:SESSION.name};
     log(l,`Signed contract uploaded: ${f.name}.`);
     save();openContractForm(id);render();
   });
@@ -3222,8 +3294,8 @@ function openPayForm(sid){
 }
 function attachProof(sid){
   const s=DB.settlements.find(x=>x.id===sid);
-  pickFile((f,data)=>{
-    s.proofDraft={name:f.name,size:f.size,data,ts:new Date().toISOString(),user:SESSION.name};
+  pickFile((f,ref)=>{
+    s.proofDraft={name:f.name,size:f.size,...ref,ts:new Date().toISOString(),user:SESSION.name};
     save();const lab=$("#pay-file-lab");if(lab)lab.textContent=f.name+" · "+kb(f.size);
   });
 }
@@ -3459,14 +3531,14 @@ function pcBody(p,tab,pl,users,deals){
         <div><div class="dl">${esc(s.label)}${s.need?' <span style="color:var(--gold)">*</span>':""}</div>
         ${d?`<div class="dm">Uploaded by ${esc(d.user)} · ${fmtDT(d.ts)} · ${kb(d.size)}${d.signedAt?` · signed ${fmtD(d.signedAt)}`:""}</div>`:`<div class="dm">Not uploaded</div>`}</div>
         <div style="display:flex;gap:6px;align-items:center">
-          ${d?`<a class="filechip" href="${d.data}" download="${esc(d.name)}">⬇ ${esc(d.name)}</a>${isStaff()?`<button class="btn ghost sm" onclick="uploadPartnerDoc('${p.id}','${s.slot}')">Replace</button><button class="doc-x" onclick="removePartnerDoc('${p.id}','${d.id}')">✕</button>`:""}`
+          ${d?`${fileLink(d)}${isStaff()?`<button class="btn ghost sm" onclick="uploadPartnerDoc('${p.id}','${s.slot}')">Replace</button><button class="doc-x" onclick="removePartnerDoc('${p.id}','${d.id}')">✕</button>`:""}`
              :isStaff()?`<button class="btn ghost sm" onclick="uploadPartnerDoc('${p.id}','${s.slot}')">Upload</button>`:`<span style="font-size:11px;color:var(--ink-soft)">awaited</span>`}
         </div>
       </div>`;
     }).join("")}
     ${(p.docs||[]).filter(d=>d.slot==="other").map(d=>`<div class="docrow">
       <div><div class="dl">${esc(d.label||"Additional document")}</div><div class="dm">Uploaded by ${esc(d.user)} · ${fmtDT(d.ts)} · ${kb(d.size)}</div></div>
-      <div style="display:flex;gap:6px;align-items:center"><a class="filechip" href="${d.data}" download="${esc(d.name)}">⬇ ${esc(d.name)}</a>${isStaff()?`<button class="doc-x" onclick="removePartnerDoc('${p.id}','${d.id}')">✕</button>`:""}</div>
+      <div style="display:flex;gap:6px;align-items:center">${fileLink(d)}${isStaff()?`<button class="doc-x" onclick="removePartnerDoc('${p.id}','${d.id}')">✕</button>`:""}</div>
     </div>`).join("")}
     ${isStaff()?`<div class="actions-row" style="margin-top:12px"><button class="btn ghost sm" onclick="uploadPartnerDoc('${p.id}','other')">+ Additional document</button>
       <button class="btn ghost sm" onclick="downloadAllPartnerDocs('${p.id}')">Download list</button></div>`:""}`;
@@ -3631,13 +3703,13 @@ function sendNotice(){
 
 function uploadPartnerDoc(pid,slot){
   const p=partnerOf(pid);
-  pickFile((f,data)=>{
+  pickFile((f,ref)=>{
     const meta=PART_DOCS.find(x=>x.slot===slot);
     let label=meta?meta.label:"Additional document";
     if(slot==="other"){const t=prompt("What is this document?","Additional document");if(t===null)return;label=t.trim()||"Additional document"}
     const signedAt=prompt("Date of signature (YYYY-MM-DD) — leave blank if not applicable:","")||"";
     if(slot!=="other")p.docs=(p.docs||[]).filter(d=>d.slot!==slot);
-    (p.docs=p.docs||[]).push({id:"PD"+Math.random().toString(36).slice(2,8),slot,label,name:f.name,size:f.size,data,ts:new Date().toISOString(),user:SESSION.name,signedAt:signedAt.trim()});
+    (p.docs=p.docs||[]).push({id:"PD"+Math.random().toString(36).slice(2,8),slot,label,name:f.name,size:f.size,...ref,ts:new Date().toISOString(),user:SESSION.name,signedAt:signedAt.trim()});
     if(slot==="ncnda"&&!p.ncndaRef)p.ncndaRef=f.name.replace(/\.[a-z]+$/i,"");
     if(slot==="cgra"&&!p.cgraRef)p.cgraRef=f.name.replace(/\.[a-z]+$/i,"");
     if(slot==="aga"&&!p.agreementRef)p.agreementRef=f.name.replace(/\.[a-z]+$/i,"");
