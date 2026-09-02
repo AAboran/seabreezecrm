@@ -482,6 +482,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
 .import-box p{margin:2px 0 9px;font-size:12px;color:var(--ink-soft);max-width:640px}
 .import-status{display:block;margin-top:7px;font-size:11.5px}
 .import-status.ok{color:#3f7d4e}.import-status.err{color:#b4552f}
+.apr{background:#fff;border:1px solid var(--hair);border-left:3px solid var(--gold);padding:14px 16px;margin-bottom:12px}
+.apr-h{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.apr-meta{font-size:11px;color:var(--ink-soft);margin-top:4px}
+.apr-t{width:100%;margin-top:11px;font-size:12px}
+.apr-t th{text-align:left;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);padding:5px 8px;border-bottom:1px solid var(--hair)}
+.apr-t td{padding:6px 8px;border-bottom:1px solid var(--paper)}
+.apr-was{color:var(--ink-soft);text-decoration:line-through}
+.apr-now{color:var(--navy);font-weight:600}
+.apr-body{font-size:12.5px;color:var(--ink);margin-top:10px}
+.apr-pending{background:rgba(194,162,87,.12);border:1px solid var(--gold);padding:11px 14px;margin-bottom:14px;font-size:12px}
+.apr-pending b{color:var(--navy);font-size:13px}
+.apr-pend-row{margin-top:5px;color:var(--ink)}
+.apr-pend-note{margin-top:6px;font-size:11px;color:var(--ink-soft)}
 /* ===== AI assistant ===== */
 .ai-wrap{max-width:860px}
 .man-card{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--gold);background:rgba(194,162,87,.08);padding:15px 18px;margin-bottom:16px;border-radius:3px}
@@ -701,6 +714,7 @@ function migrate(db){
   if(db.settings.splitPct==null)db.settings.splitPct=50;
   if(!Array.isArray(db.messages))db.messages=[];
   if(!Array.isArray(db.archive))db.archive=[];
+  if(!Array.isArray(db.approvals))db.approvals=[];
   db.users.forEach(u=>{if(!u.role)u.role=u.partnerId?"partner":"admin";if(u.role==="admin"&&u.partnerId)u.role="partner"});
   db.partners.forEach(p=>{
     if(!p.kind)p.kind="company";
@@ -1053,13 +1067,13 @@ function buildNav(){
     {v:"visits",t:"Baku visits",i:"visits"}
   ];
   if(isStaff())items.push({v:"settle",t:"Settlements",i:"settle"},{v:"partners",t:"Partners & access",i:"partners"},{v:"report",t:"Reports & review",i:"report"},{v:"finance",t:"Finances",i:"finance"},{v:"special",t:"Special terms",i:"special"});
-  if(isAdmin())items.push({v:"users",t:"Users & roles",i:"users"},{v:"archive",t:"Deleted archive",i:"archive"});
+  if(isAdmin())items.push({v:"approvals",t:"Approvals",i:"approvals"},{v:"users",t:"Users & roles",i:"users"},{v:"archive",t:"Deleted archive",i:"archive"});
   else items.push({v:"settle",t:"My commissions",i:"settle"});
   items.push({v:"assistant",t:"Assistant",i:"assistant"});
   const un=msgUnread();
-  $("#nav").innerHTML='<div class="nav-lab">Workspace</div>'+items.map(x=>`<div class="nav-it${VIEW===x.v?' on':''}" onclick="go('${x.v}')">${ICONS[x.i]}<span>${x.t}</span>${x.v==="inbox"&&un?`<span class="nav-badge">${un}</span>`:""}</div>`).join("");
+  $("#nav").innerHTML='<div class="nav-lab">Workspace</div>'+items.map(x=>`<div class="nav-it${VIEW===x.v?' on':''}" onclick="go('${x.v}')">${ICONS[x.i]}<span>${x.t}</span>${x.v==="inbox"&&un?`<span class="nav-badge">${un}</span>`:""}${x.v==="approvals"&&pendingApprovals().length?`<span class="nav-badge">${pendingApprovals().length}</span>`:""}</div>`).join("");
 }
-const TITLES={dash:["Dashboard","The corridor at a glance"],inbox:["Inbox","Comments, installment dates and settlement notices — each in its own folder"],board:["Pipeline board","Partner lane through the wired deposit — Boran&Co from there to settlement"],leads:["Leads","If it is not in the CRM, it does not exist"],deals:["Deals","Live · completed · closed — what is granted, and what is on hold"],visits:["Baku visits","Four organized group departures per year — click a departure for the manifest"],settle:["Settlements","Paid only when the developer has paid — back-to-back"],partners:["Partners & access","Named accounts only — every action attributable"],report:["Reports & review","Weekly pipeline review · monthly corridor report"],finance:["Finances","Everything the CRM knows about the money"],users:["Users & roles","Create and remove accounts — administrators, office workers and partner users"],archive:["Deleted archive","Deleted items are kept here — restore them, or delete them permanently"],special:["Special terms","An authorised override of the commission split for one exceptional deal"],assistant:["Assistant","Ask how to use the CRM, how the pipeline works, or anything about the process"]};
+const TITLES={dash:["Dashboard","The corridor at a glance"],inbox:["Inbox","Comments, installment dates and settlement notices — each in its own folder"],board:["Pipeline board","Partner lane through the wired deposit — Boran&Co from there to settlement"],leads:["Leads","If it is not in the CRM, it does not exist"],deals:["Deals","Live · completed · closed — what is granted, and what is on hold"],visits:["Baku visits","Four organized group departures per year — click a departure for the manifest"],settle:["Settlements","Paid only when the developer has paid — back-to-back"],partners:["Partners & access","Named accounts only — every action attributable"],report:["Reports & review","Weekly pipeline review · monthly corridor report"],finance:["Finances","Everything the CRM knows about the money"],users:["Users & roles","Create and remove accounts — administrators, office workers and partner users"],archive:["Deleted archive","Deleted items are kept here — restore them, or delete them permanently"],special:["Special terms","An authorised override of the commission split for one exceptional deal"],assistant:["Assistant","Ask how to use the CRM, how the pipeline works, or anything about the process"],approvals:["Approvals","Changes submitted by office workers, waiting for your decision"]};
 function go(v){VIEW=v;buildNav();const t=TITLES[v]||["",""];$("#tb-title").textContent=(v==="settle"&&!isStaff())?"My commissions":t[0];$("#tb-sub").textContent=t[1];render()}
 
 function topActions(){
@@ -1086,6 +1100,7 @@ function render(){
   else if(VIEW==="users")c.innerHTML=rUsers();
   else if(VIEW==="archive")c.innerHTML=rArchive();
   else if(VIEW==="special")c.innerHTML=rSpecial();
+  else if(VIEW==="approvals")c.innerHTML=rApprovals();
   else if(VIEW==="assistant"){c.innerHTML=rAssistant();renderAILog();}
 }
 
@@ -3559,14 +3574,18 @@ function openPartnerCard(pid,tab){
       <div class="pc-tabs">${tabs.map(([k,t])=>`<button class="btn ${PC_TAB===k?"gold":"ghost"} sm" onclick="openPartnerCard('${pid}','${k}')">${t}</button>`).join("")}</div>
       <div id="pc-body">${pcBody(p,PC_TAB,pl,users,deals)}</div>
     </div>
-    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Close</button>${isAdmin()&&PC_TAB==="profile"?`<button class="btn ghost" onclick="softDeletePartner('${pid}')">Delete partner</button><button class="btn gold" onclick="savePartnerCard('${pid}')">Save partner card</button>`:""}</div>
+    <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Close</button>${isAdmin()&&PC_TAB==="profile"?`<button class="btn ghost" onclick="softDeletePartner('${pid}')">Delete partner</button><button class="btn gold" onclick="savePartnerCard('${pid}')">Save partner card</button>`:(isStaff()&&PC_TAB==="profile"?`<button class="btn gold" onclick="savePartnerCard('${pid}')">Submit changes for approval</button>`:"")}</div>
   </div>`,tab!==undefined);
 }
 function pcBody(p,tab,pl,users,deals){
   const ro=!isStaff();
   if(tab==="profile"){
    const isInd=p.kind==="individual";
+   const pend=pendingFor(p.id).filter(a=>a.type==="partner_edit");
    return `
+    ${pend.length?`<div class="apr-pending"><b>${pend.length} change${pend.length===1?"":"s"} awaiting administrator approval</b>
+      ${pend.map(a=>`<div class="apr-pend-row">Submitted by ${esc(a.by)} on ${fmtDT(a.ts)} — ${esc(a.summary||a.label)}</div>`).join("")}
+      <div class="apr-pend-note">The details below still show the current, approved record.</div></div>`:""}
     <div class="note">Everything the group holds on this counterparty. ${ro?"Read-only — Boran&Co maintains these records.":"Editable here; the division rate applies to every future settlement."}</div>
     <h4 class="pc-lab">Identification</h4>
     <div class="grid2">
@@ -3637,7 +3656,7 @@ function pcBody(p,tab,pl,users,deals){
     ${(p.people||[]).length?(p.people||[]).map((x,i)=>`<div class="prow">
       <div><b>${esc(x.name)}</b>${x.signatory?' <span class="tag gold">Signatory</span>':""}<div class="pn">${esc(x.role||"—")}</div></div>
       <div class="pn">${esc(x.email||"—")}${x.phone?` · ${esc(x.phone)}`:""}</div>
-      <div>${DB.users.some(u=>u.partnerId===p.id&&u.name===x.name)?`<span class="tag ok">Has a login</span>`:isAdmin()?`<button class="btn ghost sm" onclick="createLogin('${p.id}',${i})">Create login</button>`:`<span class="tag line">No login</span>`}</div>
+      <div>${DB.users.some(u=>u.partnerId===p.id&&u.name===x.name)?`<span class="tag ok">Has a login</span>`:pendingFor(p.id).some(a=>a.type==="login_create"&&a.user&&a.user.name===x.name)?`<span class="tag gold">Login awaiting approval</span>`:isStaff()?`<button class="btn ghost sm" onclick="createLogin('${p.id}',${i})">Create login</button>`:`<span class="tag line">No login</span>`}</div>
       ${isStaff()?`<span style="display:flex;gap:4px;align-items:center"><button class="doc-e" title="Edit this person" onclick="openPersonEdit('${p.id}',${i})">✎</button><button class="doc-x" title="Remove this person" onclick="delPerson('${p.id}',${i})">✕</button></span>`:"<span></span>"}
     </div>`).join(""):`<div class="empty" style="padding:20px"><b>No people recorded yet</b>Add the signatory first.</div>`}
     ${isStaff()?`<div class="vedit" style="margin-top:12px"><b>Add a person</b>
@@ -3696,28 +3715,130 @@ function pcBody(p,tab,pl,users,deals){
   <div class="note">Everything this partner has done in the CRM, newest first — leads entered, gates completed, documents uploaded, comments posted.</div>
   ${hist.length?`<ul class="hist">${hist.map(a=>`<li><span class="ts">${fmtDT(a.ts)}</span><span><span class="who">${esc(a.user)}</span> — ${esc(a.text)}</span></li>`).join("")}</ul>`:`<div class="empty" style="padding:20px"><b>No activity yet</b></div>`}`;
 }
-function savePartnerCard(pid){
-  const p=partnerOf(pid),g=s=>($(s)?$(s).value.trim():"");
-  const oldSplit=p.splitPct,oldRet=p.retentionPct;
-  Object.assign(p,{
+/* Field labels used in approval summaries */
+const PF_LABELS={name:"Name",legalName:"Legal name",address:"Address",city:"City",country:"Country",ico:"IČO / licence",dico:"Tax number",vat:"VAT number",territory:"Territory",iban:"IBAN",bank:"Bank",email:"E-mail",phone:"Phone",web:"Website",signedAt:"Signed on",ncndaRef:"NCNDA ref",cgraRef:"CGRA ref",agreementRef:"Agreement ref",dob:"Date of birth",nationality:"Nationality",personalId:"Personal ID",idDoc:"ID document",retentionPct:"In-house retention %",splitPct:"Division rate %",note:"Internal note"};
+function pcFormValues(p){
+  const g=s=>($(s)?$(s).value.trim():"");
+  const v={
     name:g("#pf-name")||p.name,legalName:g("#pf-legal"),address:g("#pf-addr"),city:g("#pf-city"),country:g("#pf-country"),
     ico:g("#pf-ico"),dico:g("#pf-dico"),vat:g("#pf-vat"),territory:g("#pf-terr"),
     iban:g("#pf-iban"),bank:g("#pf-bank"),email:g("#pf-email"),phone:g("#pf-phone"),web:g("#pf-web"),signedAt:g("#pf-signed"),
     ncndaRef:g("#pf-ncnda"),cgraRef:g("#pf-cgra"),agreementRef:g("#pf-aga"),
-    ...($("#pf-dob")?{dob:g("#pf-dob"),nationality:g("#pf-nat"),personalId:g("#pf-pid"),idDoc:g("#pf-idnum")}:{}),
-    retentionPct:Math.min(100,Math.max(0,+$("#pf-ret").value||0)),
-    splitPct:Math.min(100,Math.max(0,+$("#pf-split").value||0)),
+    retentionPct:Math.min(100,Math.max(0,+($("#pf-ret")?.value||0))),
+    splitPct:Math.min(100,Math.max(0,+($("#pf-split")?.value||0))),
     note:g("#pf-note")
+  };
+  if($("#pf-dob"))Object.assign(v,{dob:g("#pf-dob"),nationality:g("#pf-nat"),personalId:g("#pf-pid"),idDoc:g("#pf-idnum")});
+  return v;
+}
+function pcDiff(p,v){
+  const out=[];
+  Object.keys(v).forEach(k=>{
+    const was=(p[k]==null?"":p[k]), now=(v[k]==null?"":v[k]);
+    if(String(was)!==String(now))out.push({field:k,label:PF_LABELS[k]||k,from:String(was),to:String(now)});
   });
+  return out;
+}
+function applyPartnerValues(pid,v,who){
+  const p=partnerOf(pid); if(!p)return;
+  const oldSplit=p.splitPct,oldRet=p.retentionPct;
+  Object.assign(p,v);
   DB.users.filter(u=>u.partnerId===pid).forEach(u=>u.title=p.name);
-  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Partner card updated — ${p.name}.`});
   if(oldSplit!==p.splitPct||oldRet!==p.retentionPct){
-    DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${p.name}: division rate ${oldSplit}% → ${p.splitPct}%, in-house retention ${oldRet}% → ${p.retentionPct}%.`});
-    msgAdd({folder:"settlements",toAdmin:true,partnerId:pid,from:SESSION.name,
+    DB.audit.unshift({ts:new Date().toISOString(),user:who,text:`${p.name}: division rate ${oldSplit}% → ${p.splitPct}%, in-house retention ${oldRet}% → ${p.retentionPct}%.`});
+    msgAdd({folder:"settlements",toAdmin:true,partnerId:pid,from:who,
       title:`Division rate updated — now ${p.splitPct}%`,
       body:`Your division rate is now ${p.splitPct}% of the pool remaining after Boran&Co's ${p.retentionPct}% in-house retention.\nOn a 2% corridor fee that is ${(2*(1-p.retentionPct/100)*p.splitPct/100).toFixed(2)}% of contract value. Statements already issued are unaffected.`});
   }
-  save();openPartnerCard(pid,"profile");render();
+}
+function savePartnerCard(pid){
+  if(!isStaff())return;
+  const p=partnerOf(pid);if(!p)return;
+  const v=pcFormValues(p);
+  const changes=pcDiff(p,v);
+  if(!changes.length){toast("Nothing has changed.");return}
+  if(isAdmin()){
+    applyPartnerValues(pid,v,SESSION.name);
+    DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Partner card updated — ${p.name}.`});
+    save();openPartnerCard(pid,"profile");render();
+    return;
+  }
+  // office worker: queue for administrator approval, leave the record untouched
+  const summary=changes.map(c=>`${c.label}: ${c.from||"(blank)"} → ${c.to||"(blank)"}`).join("; ");
+  approvalAdd({type:"partner_edit",partnerId:pid,label:`Changes to ${p.name}`,changes,values:v,summary});
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${p.name}: ${changes.length} change(s) submitted for administrator approval.`});
+  save();closeModal();render();
+  alert(`Submitted for approval.\n\n${changes.length} change${changes.length===1?"":"s"} on ${p.name} have been sent to an administrator. The partner card stays as it is until the change is approved.`);
+}
+/* ================= APPROVALS (office worker changes awaiting an administrator) ================= */
+function approvals(){return DB.approvals||(DB.approvals=[])}
+function pendingApprovals(){return approvals().filter(a=>a.status==="pending")}
+function pendingFor(pid){return pendingApprovals().filter(a=>a.partnerId===pid)}
+function approvalAdd(req){
+  approvals().unshift(Object.assign({
+    id:"AP"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+    ts:new Date().toISOString(),
+    by:SESSION?SESSION.name:"",
+    status:"pending"
+  },req));
+  msgAdd({folder:"general",toAdmin:true,partnerId:req.partnerId||null,from:SESSION?SESSION.name:"",
+    title:`Approval needed — ${req.label}`,
+    body:`${SESSION?SESSION.name:"An office worker"} has submitted a change that needs your approval.\n\n${req.summary||req.label}\n\nOpen "Approvals" to approve or decline it.`});
+}
+const APPROVAL_KIND={partner_edit:"Partner card change",login_create:"New CRM login"};
+function rApprovals(){
+  if(!isAdmin())return `<div class="empty"><b>Administrators only</b>Approvals are reviewed by an administrator.</div>`;
+  const pend=pendingApprovals(), done=approvals().filter(a=>a.status!=="pending").slice(0,25);
+  return `
+  <div class="note">Changes submitted by office workers wait here until you approve them. Nothing is applied to the records until you do. Declining leaves the records exactly as they are.</div>
+  ${pend.length?pend.map(a=>`<div class="apr">
+    <div class="apr-h">
+      <div><span class="tag gold">${APPROVAL_KIND[a.type]||a.type}</span> <b>${esc(a.label)}</b>
+        <div class="apr-meta">Submitted by ${esc(a.by)} · ${fmtDT(a.ts)}</div></div>
+      <div style="display:flex;gap:8px"><button class="btn ghost sm" onclick="approvalDecline('${a.id}')">Decline</button><button class="btn gold sm" onclick="approvalApprove('${a.id}')">Approve</button></div>
+    </div>
+    ${a.type==="partner_edit"?`<table class="apr-t"><thead><tr><th>Field</th><th>Currently</th><th>Proposed</th></tr></thead><tbody>
+      ${(a.changes||[]).map(c=>`<tr><td>${esc(c.label)}</td><td class="apr-was">${esc(c.from||"—")}</td><td class="apr-now">${esc(c.to||"—")}</td></tr>`).join("")}
+    </tbody></table>`:""}
+    ${a.type==="login_create"?`<div class="apr-body">A login for <b>${esc(a.user&&a.user.name||"")}</b> at ${esc(partnerName(a.partnerId))} — username <b>${esc(a.user&&a.user.user||"")}</b>. The account is created only when you approve.</div>`:""}
+  </div>`).join(""):`<div class="empty" style="padding:26px"><b>Nothing waiting for approval</b>Submissions from office workers will appear here.</div>`}
+  ${done.length?`<h4 class="pc-lab" style="margin-top:22px">Recently decided</h4>
+  <table><thead><tr><th>What</th><th>Submitted by</th><th>Decision</th><th>When</th></tr></thead><tbody>
+  ${done.map(a=>`<tr><td>${esc(a.label)}</td><td>${esc(a.by)}</td><td>${a.status==="approved"?'<span class="tag ok">Approved</span>':'<span class="tag line">Declined</span>'}${a.decidedBy?` <span style="font-size:11px;color:var(--ink-soft)">by ${esc(a.decidedBy)}</span>`:""}</td><td style="font-size:11.5px">${a.decidedAt?fmtDT(a.decidedAt):"—"}</td></tr>`).join("")}
+  </tbody></table>`:""}`;
+}
+function approvalApprove(id){
+  if(!isAdmin())return;
+  const a=approvals().find(x=>x.id===id);if(!a||a.status!=="pending")return;
+  if(a.type==="partner_edit"){
+    const p=partnerOf(a.partnerId);
+    if(!p){alert("That partner no longer exists, so the change cannot be applied.");a.status="declined";a.decidedBy=SESSION.name;a.decidedAt=new Date().toISOString();save();render();return}
+    if(!confirm(`Approve ${(a.changes||[]).length} change(s) to ${p.name}?`))return;
+    applyPartnerValues(a.partnerId,a.values,a.by);
+    DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Approved ${(a.changes||[]).length} change(s) to ${p.name}, submitted by ${a.by}.`});
+  }else if(a.type==="login_create"){
+    const u=a.user||{};
+    if(DB.users.some(x=>x.user===u.user)){alert("That username has since been taken, so this login cannot be created. Ask for it to be submitted again with a different username.");return}
+    if(!confirm(`Approve a CRM login for ${u.name} at ${partnerName(a.partnerId)}?`))return;
+    let uid;do{uid="U"+Math.random().toString(36).slice(2,8)}while(DB.users.some(x=>x.id===uid));
+    DB.users.push({id:uid,user:u.user,pass:u.pass,name:u.name,role:"partner",partnerId:a.partnerId,title:partnerName(a.partnerId)});
+    const p=partnerOf(a.partnerId);
+    if(p){p.people=p.people||[];if(!p.people.some(x=>x.name===u.name))p.people.push({name:u.name,role:"CRM user",email:"",phone:"",signatory:false});}
+    DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Approved a CRM login for ${u.name} at ${partnerName(a.partnerId)}, requested by ${a.by}.`});
+  }
+  a.status="approved";a.decidedBy=SESSION.name;a.decidedAt=new Date().toISOString();
+  msgAdd({folder:"general",toAdmin:true,from:SESSION.name,title:`Approved — ${a.label}`,body:`${SESSION.name} approved the change you submitted: ${a.summary||a.label}`});
+  save();render();toast("Approved and applied.");
+}
+function approvalDecline(id){
+  if(!isAdmin())return;
+  const a=approvals().find(x=>x.id===id);if(!a||a.status!=="pending")return;
+  const why=prompt(`Decline "${a.label}"?\n\nOptionally add a short reason for the office worker:`,"");
+  if(why===null)return;
+  a.status="declined";a.decidedBy=SESSION.name;a.decidedAt=new Date().toISOString();a.reason=why.trim();
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Declined: ${a.label} (submitted by ${a.by})${a.reason?` — ${a.reason}`:""}.`});
+  msgAdd({folder:"general",toAdmin:true,from:SESSION.name,title:`Declined — ${a.label}`,body:`${SESSION.name} declined the change you submitted.${a.reason?`\n\nReason: ${a.reason}`:""}\n\nThe records are unchanged.`});
+  save();render();
 }
 function addPerson(pid){
   const p=partnerOf(pid),g=s=>($(s)?$(s).value.trim():"");
@@ -3959,6 +4080,16 @@ function saveUser2(editId){
     const user=$("#u-user").value.trim().toLowerCase();
     if(!user){alert("Username is required.");return}
     if(DB.users.some(x=>x.user===user)){alert("That username already exists. Every existing account, including the office worker, stays exactly as it is — please pick a different username.");return}
+    if(!isAdmin()){
+      // office workers may request a login; an administrator approves it
+      if(role!=="partner"||!pid){alert("Only an administrator can create staff accounts.");return}
+      approvalAdd({type:"login_create",partnerId:pid,label:`CRM login for ${name} at ${partnerName(pid)}`,
+        user:{name,user,pass},summary:`New partner login — ${name} (username ${user}) at ${partnerName(pid)}`});
+      DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Requested a CRM login for ${name} at ${partnerName(pid)} — awaiting administrator approval.`});
+      save();closeModal();render();
+      alert(`Submitted for approval.\n\nThe login for ${name} will be created once an administrator approves it.`);
+      return;
+    }
     let id;do{id="U"+Math.random().toString(36).slice(2,8)}while(DB.users.some(x=>x.id===id));
     DB.users.push({id,user,pass,name,role,partnerId:pid,title});
     if(role==="partner"&&pid){const p=partnerOf(pid);if(p){p.people=p.people||[];if(!p.people.some(x=>x.name===name))p.people.push({name,role:"CRM user",email:"",phone:"",signatory:false});}}
