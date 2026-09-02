@@ -482,6 +482,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);bo
 .import-box p{margin:2px 0 9px;font-size:12px;color:var(--ink-soft);max-width:640px}
 .import-status{display:block;margin-top:7px;font-size:11.5px}
 .import-status.ok{color:#3f7d4e}.import-status.err{color:#b4552f}
+.lg-t{width:100%;font-size:12px;border-collapse:collapse}
+.lg-t th{text-align:left;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);padding:5px 6px;border-bottom:1px solid var(--hair);font-weight:600}
+.lg-t td{padding:7px 6px;border-bottom:1px dotted var(--hair);vertical-align:middle}
+.lg-t tr:last-child td{border-bottom:none}
+.lg-u{display:block;font-size:10.5px;color:var(--ink-soft)}
 .apr{background:#fff;border:1px solid var(--hair);border-left:3px solid var(--gold);padding:14px 16px;margin-bottom:12px}
 .apr-h{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
 .apr-meta{font-size:11px;color:var(--ink-soft);margin-top:4px}
@@ -715,6 +720,7 @@ function migrate(db){
   if(!Array.isArray(db.messages))db.messages=[];
   if(!Array.isArray(db.archive))db.archive=[];
   if(!Array.isArray(db.approvals))db.approvals=[];
+  if(!Array.isArray(db.logins))db.logins=[];
   db.users.forEach(u=>{if(!u.role)u.role=u.partnerId?"partner":"admin";if(u.role==="admin"&&u.partnerId)u.role="partner"});
   db.partners.forEach(p=>{
     if(!p.kind)p.kind="company";
@@ -1030,7 +1036,15 @@ function doLogin(){
   if(!found){$("#lg-err").style.display="block";return}
   SESSION={id:found.id,name:found.name,role:found.role,partnerId:found.partnerId,title:found.title};
   try{sessionStorage.setItem("boranco_sess",JSON.stringify(SESSION))}catch(e){}
+  loginRecord(found);
   enterApp();
+}
+function loginRecord(u){
+  if(!DB)return;
+  if(!Array.isArray(DB.logins))DB.logins=[];
+  DB.logins.unshift({ts:new Date().toISOString(),userId:u.id,name:u.name,user:u.user,role:u.role,title:u.title||""});
+  while(DB.logins.length>300)DB.logins.pop();
+  save();
 }
 function doLogout(){SESSION=null;try{sessionStorage.removeItem("boranco_sess")}catch(e){};$("#app").classList.remove("on");$("#login").style.display="flex";$("#lg-pass").value=""}
 function enterApp(){
@@ -1055,7 +1069,8 @@ const ICONS={
  users:'<svg viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/><circle cx="18" cy="8" r="2.4"/><path d="M16.2 13.6c2.6.5 4.5 2.8 4.5 5.4"/></svg>',
  archive:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4"/><path d="M5 8v12h14V8M9 12h6"/></svg>',
  special:'<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 18l-6 3.4 1.4-6.8-5.1-4.7 6.9-.8z"/></svg>',
- assistant:'<svg viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 1 7 7v1.5a3.5 3.5 0 0 1 0 7H8a5 5 0 0 1-5-5v-3a7 7 0 0 1 7-7z"/><circle cx="9.5" cy="11" r="1.1"/><circle cx="14.5" cy="11" r="1.1"/></svg>'
+ assistant:'<svg viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 1 7 7v1.5a3.5 3.5 0 0 1 0 7H8a5 5 0 0 1-5-5v-3a7 7 0 0 1 7-7z"/><circle cx="9.5" cy="11" r="1.1"/><circle cx="14.5" cy="11" r="1.1"/></svg>',
+ approvals:'<svg viewBox="0 0 24 24"><path d="M20.5 11.5V19a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/><path d="M8.5 11.5l3.2 3.2L21 5.4"/></svg>'
 };
 function buildNav(){
   let items=[
@@ -1157,6 +1172,19 @@ function rDash(){
         <h3 class="serif">Recent activity</h3>
         ${recent.length?`<ul class="hist">${recent.map(a=>`<li><span class="ts">${fmtDT(a.ts)}</span><span><span class="who">${esc(a.user)}</span> — ${esc(a.text)}</span></li>`).join("")}</ul>`:`<div class="empty"><b>Nothing yet</b>Activity appears here as leads move.</div>`}
       </div>
+      ${isAdmin()?`<div class="card">
+        <h3 class="serif">Login history</h3>
+        <p style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Who has signed in, and when. The most recent sign-ins are listed first.</p>
+        ${(DB.logins||[]).length?`<table class="lg-t"><thead><tr><th>When</th><th>Who</th><th>Role</th></tr></thead><tbody>
+          ${(DB.logins||[]).slice(0,12).map(x=>`<tr>
+            <td style="white-space:nowrap">${fmtDT(x.ts)}</td>
+            <td><b>${esc(x.name)}</b><span class="lg-u">${esc(x.user||"")}</span></td>
+            <td><span class="tag ${x.role==="admin"?"gold":x.role==="office"?"navy":"line"}">${esc(ROLES[x.role]||x.role||"")}</span></td>
+          </tr>`).join("")}
+        </tbody></table>
+        ${(DB.logins||[]).length>12?`<div style="font-size:11px;color:var(--ink-soft);margin-top:8px">Showing the last 12 of ${(DB.logins||[]).length} recorded sign-ins.</div>`:""}`
+        :`<div class="empty"><b>No sign-ins recorded yet</b>Each sign-in from now on will be listed here.</div>`}
+      </div>`:""}
       <div class="card navy">
         <h3 class="serif">The rules of the corridor</h3>
         <ul class="hist" style="color:rgba(246,242,233,.85)">
@@ -3677,7 +3705,7 @@ function pcBody(p,tab,pl,users,deals){
       const last=DB.audit.find(a=>a.user===u.name);
       return `<tr><td><b>${esc(u.name)}</b>${(p.people||[]).some(x=>x.name===u.name&&x.signatory)?' <span class="tag gold">Signatory</span>':""}</td>
       <td>${esc(u.user)}</td>
-      <td style="font-size:11.5px;color:var(--ink-soft)">${isStaff()?esc(u.pass)+" (prototype only)":"••••••••"}</td>
+      <td style="font-size:11.5px;color:var(--ink-soft)">${isStaff()?esc(u.pass):"••••••••"}</td>
       <td style="font-size:11.5px">${last?fmtDT(last.ts):"—"}</td>
       ${isAdmin()?`<td><button class="btn ghost sm" onclick="delUser('${u.id}')">Revoke</button></td>`:""}</tr>`;
     }).join("")}</tbody></table>`:`<div class="empty" style="padding:20px"><b>No accounts yet</b>This company cannot sign in until a login is created.</div>`}
