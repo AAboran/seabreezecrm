@@ -721,6 +721,7 @@ function migrate(db){
   if(!Array.isArray(db.archive))db.archive=[];
   if(!Array.isArray(db.approvals))db.approvals=[];
   if(!Array.isArray(db.logins))db.logins=[];
+  if(!Array.isArray(db.tombstones))db.tombstones=[];
   db.users.forEach(u=>{if(!u.role)u.role=u.partnerId?"partner":"admin";if(u.role==="admin"&&u.partnerId)u.role="partner"});
   db.partners.forEach(p=>{
     if(!p.kind)p.kind="company";
@@ -766,8 +767,8 @@ function migrate(db){
 function load(){
   // NOTE: never call save() here — save() stamps a new version, which would make
   // this device's copy look newer than the shared one and overwrite it on boot.
-  try{const raw=localStorage.getItem(LS_KEY);if(raw){DB=migrate(JSON.parse(raw));DB_FRESH=false;return}}catch(e){}
-  DB=migrate(seed());DB_FRESH=true;   // brand-new empty copy: must never overwrite the cloud
+  try{const raw=localStorage.getItem(LS_KEY);if(raw){DB=migrate(JSON.parse(raw));DB_FRESH=false;primeSnap();return}}catch(e){}
+  DB=migrate(seed());DB_FRESH=true;primeSnap();   // brand-new empty copy: must never overwrite the cloud
 }
 let DB_FRESH=false;
 function hasData(db){
@@ -776,9 +777,82 @@ function hasData(db){
          (db.settlements||[]).length>0||(db.campaigns||[]).length>0||(db.archive||[]).length>0||
          (db.users||[]).length>2;
 }
-let _cloudTimer=null;
+let _cloudTimer=null, _pushRetry=0;
 function stamp(){ try{DB._v=Math.max((DB._v||0)+1, Date.now()); DB._by=SESSION?SESSION.name:(DB._by||"");}catch(e){} }
+
+/* ================= RECORD-LEVEL MERGE =================
+   The shared copy is merged record by record, never overwritten wholesale.
+   Every record carries a modification time (_m); a deliberate deletion leaves a
+   tombstone. Two people working at once can therefore never erase each other's
+   records — the worst case is that the newer edit of the SAME record wins. */
+const ID_SETS=["leads","partners","users","visits","campaigns","settlements","messages","archive","approvals"];
+const LOG_SETS=["audit","logins"];
+let _snap=new Map();                       // id -> JSON of the record as last saved
+function recKey(r){return r&&(r.id!=null?String(r.id):null)}
+function recBody(r){const o={};for(const k in r){if(k!=="_m")o[k]=r[k]}return JSON.stringify(o)}
+function markChanges(){
+  const now=Date.now();
+  ID_SETS.forEach(set=>{
+    (DB[set]||[]).forEach(r=>{
+      const k=recKey(r); if(!k)return;
+      const body=recBody(r), prev=_snap.get(set+":"+k);
+      if(prev!==body){ r._m=now; _snap.set(set+":"+k, body); }
+    });
+  });
+}
+function primeSnap(){
+  _snap=new Map();
+  ID_SETS.forEach(set=>(DB[set]||[]).forEach(r=>{const k=recKey(r);if(k)_snap.set(set+":"+k,recBody(r))}));
+}
+function tomb(id){
+  if(!id)return;
+  if(!Array.isArray(DB.tombstones))DB.tombstones=[];
+  DB.tombstones=DB.tombstones.filter(t=>t.id!==id);
+  DB.tombstones.push({id:String(id),ts:Date.now()});
+  while(DB.tombstones.length>2000)DB.tombstones.shift();
+}
+function logKey(x){return (x&&x.ts||"")+"|"+(x&&(x.text||x.userId||"")||"")+"|"+(x&&(x.user||x.name||"")||"")}
+function mergeDB(a,b){
+  // a and b are two copies of the database; returns a merged copy losing nothing.
+  const newer = (b&&(b._v||0))>(a&&(a._v||0)) ? b : a;
+  const out=Object.assign({},newer);
+  // tombstones: union, newest timestamp per id
+  const tmap=new Map();
+  [...(a.tombstones||[]),...(b.tombstones||[])].forEach(t=>{
+    const prev=tmap.get(t.id); if(!prev||t.ts>prev.ts)tmap.set(t.id,t);
+  });
+  out.tombstones=[...tmap.values()];
+  ID_SETS.forEach(set=>{
+    const m=new Map();
+    const take=list=>(list||[]).forEach(r=>{
+      const k=recKey(r); if(!k){return}
+      const cur=m.get(k);
+      if(!cur){m.set(k,r);return}
+      const rm=r._m||0, cm=cur._m||0;
+      if(rm>cm)m.set(k,r);                         // newer edit of the same record wins
+    });
+    take(a[set]); take(b[set]);
+    // honour deliberate deletions, unless the record was edited after the deletion
+    const res=[];
+    m.forEach((r,k)=>{
+      const t=tmap.get(k);
+      if(t && !( (r._m||0) > t.ts )) return;        // deleted and not re-edited since
+      res.push(r);
+    });
+    out[set]=res;
+  });
+  LOG_SETS.forEach(set=>{                           // append-only lists: union, newest first
+    const m=new Map();
+    [...(a[set]||[]),...(b[set]||[])].forEach(x=>{const k=logKey(x);if(!m.has(k))m.set(k,x)});
+    out[set]=[...m.values()].sort((x,y)=>(y.ts||"")<(x.ts||"")?-1:1);
+  });
+  if((out.audit||[]).length>400)out.audit=out.audit.slice(0,400);
+  if((out.logins||[]).length>300)out.logins=out.logins.slice(0,300);
+  out._v=Math.max(a._v||0,b._v||0);
+  return out;
+}
 function save(){
+  markChanges();
   stamp();
   try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){ if(!CLOUD.on)alert("This device's local storage is full — a large uploaded file may be the cause. The last change was not saved."); }
   if(CLOUD.on){ CLOUD.status="saving"; syncBadge(); clearTimeout(_cloudTimer); _cloudTimer=setTimeout(cloudPush,700); }
@@ -799,13 +873,37 @@ async function cloudPush(){
   if(!hasData(DB)){
     try{const chk=await cloudGet();if(chk&&chk.data&&hasData(chk.data)){CLOUD.status="synced";syncBadge();return}}catch(e){}
   }
-  const str=JSON.stringify(DB);
-  if(str.length>40*1024*1024){ CLOUD.status="toolarge"; syncBadge(); return; }
   CLOUD.saving=true; CLOUD.status="saving"; syncBadge();
+  // Merge with whatever is in the shared store right now, so a save can never
+  // erase records another person added while this device was out of date.
+  try{
+    const live=await cloudGet();
+    if(live && !live.error && live.data){
+      const merged=mergeDB(live.data, DB);
+      DB=migrate(merged);
+      primeSnap();
+      try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+    }
+  }catch(e){}
+  const str=JSON.stringify(DB);
+  if(str.length>40*1024*1024){ CLOUD.status="toolarge"; CLOUD.saving=false; syncBadge(); return; }
   try{
     const r=await fetch("/api/data",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({data:DB})});
     const d=await r.json();
     CLOUD.status = (d&&d.ok)?"synced":(d&&d.error==="too_large"?"toolarge":"error");
+    // Two people can save in the same instant. Read back and, if the shared copy
+    // is missing anything this device holds, merge and publish again.
+    if(d&&d.ok&&_pushRetry<3){
+      const back=await cloudGet();
+      if(back && !back.error && back.data){
+        const m=mergeDB(back.data, DB);
+        if(JSON.stringify(m)!==JSON.stringify(back.data)){
+          DB=migrate(m); primeSnap();
+          try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+          _pushRetry++; CLOUD.saving=false; await cloudPush(); _pushRetry--; return;
+        }
+      }
+    }
   }catch(e){ CLOUD.status="offline"; }
   CLOUD.saving=false; syncBadge();
 }
@@ -819,14 +917,14 @@ async function bootData(){
     // The shared copy always wins on boot unless this device holds a strictly
     // newer version that did NOT come from a fresh/empty seed. This prevents a
     // new device (or a cleared browser) from wiping everyone's data.
-    const localIsNewer = !DB_FRESH && (DB._v||0) > (cloud._v||0);
-    if(localIsNewer){ await cloudPush(); }
-    else{
-      if(hasData(DB)&&!hasData(cloud))snapshot("incoming copy was empty");
-      else if(hasData(DB))snapshot("before incoming changes");
-      DB=migrate(cloud); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
-      CLOUD.status="synced";
-    }
+    if(hasData(DB))snapshot("before incoming changes");
+    // Merge rather than choose: nothing on either side is discarded.
+    const merged = DB_FRESH ? migrate(cloud) : migrate(mergeDB(cloud, DB));
+    const gained = JSON.stringify(merged)!==JSON.stringify(cloud);
+    DB=merged; primeSnap();
+    try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+    CLOUD.status="synced";
+    if(gained && !DB_FRESH) await cloudPush();   // publish anything this device held
   }else{
     // Nothing in the shared store yet. Only publish if we actually have data.
     if(!DB_FRESH && hasData(DB)) await cloudPush();
@@ -843,14 +941,25 @@ function busyEditing(){
 }
 async function pollSync(silent){
   if(!CLOUD.on||CLOUD.saving) return;
-  if(!silent&&(document.hidden||busyEditing())) return;
+  if(!silent&&document.hidden) return;
   const res=await cloudGet();
   if(res.error){ CLOUD.status="offline"; syncBadge(); return; }
-  if(res.data && (res.data._v||0) > (DB._v||0) && !busyEditing()){
-    snapshot("before incoming changes");
-    DB=migrate(res.data); try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
-    CLOUD.status="synced"; if(SESSION) render(); toast("Updated with the latest changes from your team.");
-  }else{ CLOUD.status="synced"; }
+  if(res.data){
+    // Always merge in BOTH directions, whatever the version numbers say:
+    // take anything the shared copy has that we lack, and publish anything we
+    // have that it lacks. Nothing can be lost in either direction.
+    const merged=migrate(mergeDB(res.data, DB));
+    const mj=JSON.stringify(merged);
+    if(mj!==JSON.stringify(DB)){
+      snapshot("before incoming changes");
+      DB=merged; primeSnap();
+      try{localStorage.setItem(LS_KEY,JSON.stringify(DB))}catch(e){}
+      if(SESSION && !busyEditing()) render();
+      toast("Updated with the latest changes from your team.");
+    }
+    if(mj!==JSON.stringify(res.data)) cloudPush();
+  }
+  CLOUD.status="synced";
   syncBadge();
 }
 function refreshNow(){ if(!CLOUD.on){toast("Shared storage is not switched on — this device only.");return;} toast("Checking for the latest changes…"); pollSync(true); }
@@ -1268,7 +1377,7 @@ function softDeleteCampaign(id){
     ? `“${c.name}” has ${n} lead${n===1?"":"s"} sourced from it.\n\nDeleting it removes the market-activation entry and its card. Those leads are not touched — they keep this name on their record, they just won’t be grouped under a card any more.\n\nMove it to the deleted archive?`
     : `Move the market activation “${c.name}” to the deleted archive?`;
   if(!confirm(msg))return;
-  DB.campaigns=DB.campaigns.filter(x=>x.id!==id);
+  DB.campaigns=DB.campaigns.filter(x=>x.id!==id);tomb(id);
   DB.archive.unshift(archiveEntry("campaign",c.name,`Market activation · ${partnerName(c.partnerId)}${n?` · ${n} lead${n===1?"":"s"} kept`:""}`,c));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Market activation “${c.name}” moved to the deleted archive.`});
   closeModal();save();render();
@@ -1444,7 +1553,7 @@ function delVisit(id){
   const v=visit(id);const on=DB.leads.filter(l=>l.visitId===id);
   if(on.length){alert(`${on.length} traveller(s) are assigned to this departure. Move them to another departure first.`);return}
   if(!confirm(`Delete the departure "${v.label}" of ${fmtD(v.date)}?`))return;
-  DB.visits=DB.visits.filter(x=>x.id!==id);
+  DB.visits=DB.visits.filter(x=>x.id!==id);tomb(id);
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Departure ${v.label} (${fmtD(v.date)}) removed from the calendar.`});
   save();closeModal();render();
 }
@@ -1893,7 +2002,7 @@ function saveSettings(){
 function delUser(id){
   const u=DB.users.find(x=>x.id===id);if(!u)return;
   if(!confirm(`Revoke CRM access for ${u.name} (${u.user})?`))return;
-  DB.users=DB.users.filter(x=>x.id!==id);
+  DB.users=DB.users.filter(x=>x.id!==id);tomb(id);
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`CRM access revoked for ${u.name} (${u.title}).`});
   msgAdd({folder:"general",toAdmin:true,partnerId:u.partnerId,from:SESSION.name,title:`Access revoked — ${u.name}`,body:`The account "${u.user}" of ${u.title} no longer has access to the CRM.`});
   save();render();
@@ -3428,7 +3537,7 @@ function softDeleteLead(id){
     ? `${l.name} (${l.ref}) is a closed and settled deal.\n\nAs an administrator you can still move it to the deleted archive. Its settlement statements stay in place, and you can restore the lead from the archive if you need it back.\n\nDelete it?`
     : `Move ${l.name} (${l.ref}) to the deleted archive?\n\nRelated settlement statements stay in place. You can restore the lead from the archive, or delete it permanently there.`;
   if(!confirm(msg))return;
-  DB.leads=DB.leads.filter(x=>x.id!==id);
+  DB.leads=DB.leads.filter(x=>x.id!==id);tomb(id);
   DB.archive.unshift(archiveEntry("lead",`${l.name} · ${l.ref}`,`${STAGES[l.stage-1].t}${l.contractRef?" · "+l.contractRef:""} · ${partnerName(l.partnerId)}${frozen?" · was closed & settled":""}`,l));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`${l.ref} ${l.name}: moved to the deleted archive${frozen?" (was closed & settled)":""}.`});
   closeDrawer();save();render();
@@ -3438,7 +3547,7 @@ function softDeleteVisit(id){
   const on=DB.leads.filter(l=>l.visitId===id);
   if(on.length){alert(`${on.length} traveller(s) are assigned to this departure. Move them first, then delete it.`);return}
   if(!confirm(`Move the departure "${v.label}" (${fmtD(v.date)}) to the deleted archive?`))return;
-  DB.visits=DB.visits.filter(x=>x.id!==id);
+  DB.visits=DB.visits.filter(x=>x.id!==id);tomb(id);
   DB.archive.unshift(archiveEntry("visit",`${v.label} · ${fmtD(v.date)}`,`${v.cap} seats`,v));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Departure ${v.label} (${fmtD(v.date)}) moved to the deleted archive.`});
   closeModal();save();render();
@@ -3447,7 +3556,7 @@ function softDeleteStatement(id){
   const s=DB.settlements.find(x=>x.id===id);if(!s)return;
   if(s.paid&&!confirm(`Statement ${s.ref} is marked paid. Move it to the deleted archive anyway?\nThe attached confirmation goes with it.`))return;
   if(!s.paid&&!confirm(`Move statement ${s.ref} (${s.leadName}, ${eur(s.amount)}) to the deleted archive?`))return;
-  DB.settlements=DB.settlements.filter(x=>x.id!==id);
+  DB.settlements=DB.settlements.filter(x=>x.id!==id);tomb(id);
   const l=lead(s.leadId);if(l&&l.stmtRef===s.ref)l.stmtRef=DB.settlements.filter(x=>x.leadId===l.id).slice(-1)[0]?.ref||"";
   DB.archive.unshift(archiveEntry("statement",`${s.ref} · ${s.leadName}`,`${eur(s.amount)} · ${partnerName(s.partnerId)}`,s));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Statement ${s.ref} moved to the deleted archive.`});
@@ -3459,7 +3568,8 @@ function softDeletePartner(id){
   if(pl.length){alert(`${p.name} has ${pl.length} lead(s) attributed. Reassign or delete those first.`);return}
   const us=DB.users.filter(u=>u.partnerId===id);
   if(!confirm(`Move ${p.name} to the deleted archive?${us.length?`\n${us.length} login(s) for this company will be archived with it.`:""}`))return;
-  DB.partners=DB.partners.filter(x=>x.id!==id);
+  DB.users.filter(u=>u.partnerId===id).forEach(u=>tomb(u.id));
+  DB.partners=DB.partners.filter(x=>x.id!==id);tomb(id);
   DB.users=DB.users.filter(u=>u.partnerId!==id);
   DB.archive.unshift(archiveEntry("partner",p.name,`${p.city||""}${p.ico?" · IČO "+p.ico:""}`,{partner:p,users:us}));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Partner ${p.name} moved to the deleted archive.`});
@@ -4131,7 +4241,7 @@ function softDeleteUser(id){
   if(u.id===SESSION.id){alert("You cannot delete the account you are signed in with.");return}
   if(u.role==="admin"&&DB.users.filter(x=>x.role==="admin").length<=1){alert("At least one administrator must remain.");return}
   if(!confirm(`Move the account "${u.name}" (${u.user}) to the deleted archive? They will no longer be able to sign in.`))return;
-  DB.users=DB.users.filter(x=>x.id!==id);
+  DB.users=DB.users.filter(x=>x.id!==id);tomb(id);
   DB.archive.unshift(archiveEntry("user",u.name,`${ROLES[u.role]} · ${u.title}`,u));
   DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Account ${u.name} moved to the deleted archive.`});
   save();render();
