@@ -722,6 +722,7 @@ function migrate(db){
   if(!Array.isArray(db.approvals))db.approvals=[];
   if(!Array.isArray(db.logins))db.logins=[];
   if(!Array.isArray(db.tombstones))db.tombstones=[];
+  if(!Array.isArray(db.ledger))db.ledger=[];
   db.users.forEach(u=>{if(!u.role)u.role=u.partnerId?"partner":"admin";if(u.role==="admin"&&u.partnerId)u.role="partner"});
   db.partners.forEach(p=>{
     if(!p.kind)p.kind="company";
@@ -796,11 +797,63 @@ function markChanges(){
     (DB[set]||[]).forEach(r=>{
       const k=recKey(r); if(!k)return;
       const body=recBody(r), prev=_snap.get(set+":"+k);
-      if(prev!==body){ r._m=now; _snap.set(set+":"+k, body); }
+      if(prev!==body){ r._m=now; _snap.set(set+":"+k, body);
+        if(set==="leads")ledgerWrite(r,now);
+      }
     });
   });
 }
+/* ================= LEAD LEDGER (permanent safety net) =================
+   Every lead ever entered is copied into an append-only ledger. The ledger is
+   never pruned by merges and is never removed by a deletion, so a lead can
+   always be recovered — even if the live records are lost or overwritten.
+   It is held in the shared store AND mirrored into this device's own storage. */
+function leadSnapshot(l){
+  const o={};
+  for(const k in l){
+    if(k==="docs"||k==="contractFile"||k==="infoForm")continue;   // files live elsewhere
+    o[k]=l[k];
+  }
+  return o;
+}
+function ledgerWrite(l,ts){
+  if(!l||!l.id)return;
+  if(!Array.isArray(DB.ledger))DB.ledger=[];
+  const snap={id:l.id,ts:ts||Date.now(),ref:l.ref||"",name:l.name||"",partnerId:l.partnerId||null,
+              enteredBy:l.enteredBy||"",stage:l.stage||1,createdAt:l.createdAt||"",data:leadSnapshot(l)};
+  const i=DB.ledger.findIndex(x=>x.id===l.id);
+  if(i>=0)DB.ledger[i]=snap; else DB.ledger.push(snap);
+  ledgerMirror(snap);
+}
+function ledgerBackfill(){
+  (DB.leads||[]).forEach(l=>{
+    if(!Array.isArray(DB.ledger))DB.ledger=[];
+    if(!DB.ledger.some(x=>x.id===l.id))ledgerWrite(l,Date.now());
+  });
+}
+/* per-device mirror, so even a total loss of the shared store leaves a copy */
+async function ledgerMirror(snap){
+  try{
+    const db=await fileDB();
+    const tx=db.transaction(FILE_STORE,"readwrite");
+    tx.objectStore(FILE_STORE).put(JSON.stringify(snap),"ledger:"+snap.id);
+  }catch(e){}
+}
+async function ledgerLocal(){
+  const out=[];
+  try{
+    const db=await fileDB();
+    const keys=await new Promise((res,rej)=>{const tx=db.transaction(FILE_STORE,"readonly");const rq=tx.objectStore(FILE_STORE).getAllKeys();rq.onsuccess=()=>res(rq.result||[]);rq.onerror=()=>rej(rq.error)});
+    for(const k of keys){
+      if(typeof k!=="string"||k.indexOf("ledger:")!==0)continue;
+      const v=await fileGet(k); if(!v)continue;
+      try{out.push(JSON.parse(v))}catch(e){}
+    }
+  }catch(e){}
+  return out;
+}
 function primeSnap(){
+  try{ledgerBackfill()}catch(e){}
   _snap=new Map();
   ID_SETS.forEach(set=>(DB[set]||[]).forEach(r=>{const k=recKey(r);if(k)_snap.set(set+":"+k,recBody(r))}));
 }
@@ -841,6 +894,15 @@ function mergeDB(a,b){
     });
     out[set]=res;
   });
+  {
+    const lm=new Map();
+    [...(a.ledger||[]),...(b.ledger||[])].forEach(x=>{
+      if(!x||!x.id)return;
+      const cur=lm.get(x.id);
+      if(!cur||(x.ts||0)>(cur.ts||0))lm.set(x.id,x);
+    });
+    out.ledger=[...lm.values()];
+  }
   LOG_SETS.forEach(set=>{                           // append-only lists: union, newest first
     const m=new Map();
     [...(a[set]||[]),...(b[set]||[])].forEach(x=>{const k=logKey(x);if(!m.has(k))m.set(k,x)});
@@ -1206,7 +1268,7 @@ function topActions(){
   if(VIEW==="visits"&&isStaff())h+=`<button class="btn sm" onclick="openVisitForm()">+ Departure</button>`;
   if(VIEW==="partners"&&isStaff())h+=`<button class="btn sm" onclick="openPartnerForm('company')">+ Partner company</button><button class="btn sm" onclick="openPartnerForm('individual')">+ Individual partner</button><button class="btn ghost sm" onclick="openUserForm2(null,'partner')">+ User</button>`;
   if(isStaff())h+=`<button class="btn ghost sm" onclick="exportJSON()">Export</button>`;
-  if(isAdmin())h+=`<button class="btn ghost sm" onclick="openRestore()" title="Restore records from a backup or snapshot">Restore</button>`;
+  if(isStaff())h+=`<button class="btn ghost sm" onclick="openRestore()" title="Recover a missing lead, or restore from a backup">Recover / Restore</button>`;
   a.innerHTML=h;
 }
 function render(){
@@ -3620,24 +3682,67 @@ function snapshot(reason){
 }
 function listSnapshots(){try{return JSON.parse(localStorage.getItem(SNAP_KEY)||"[]")}catch(e){return[]}}
 function openRestore(){
-  if(!isAdmin()){alert("Only an administrator can restore data.");return}
-  const snaps=listSnapshots();
+  if(!isStaff()){alert("Only Boran&Co staff can restore records.");return}
+  const snaps=isAdmin()?listSnapshots():[];
   openModal(`<div class="modal-box" style="width:min(680px,100%)">
     <div class="modal-h"><h3 class="serif">Restore data</h3><button class="dr-x" onclick="closeModal()">×</button></div>
     <div class="modal-b">
       <div class="note">Use this if records have gone missing. Restoring replaces what is currently in the CRM and, if shared storage is on, publishes the restored copy to everyone.</div>
-      <h4 class="pc-lab">From a file you exported</h4>
+      ${isAdmin()?`<h4 class="pc-lab">From a file you exported</h4>
       <p style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Choose a <b>boranco-crm-export-….json</b> file saved earlier with the Export button.</p>
       <label class="btn gold sm" style="cursor:pointer">Choose backup file<input type="file" id="rs-file" accept="application/json,.json" style="display:none" onchange="restoreFromFile(event)"></label>
-      <span id="rs-status" class="import-status"></span>
-      <h4 class="pc-lab" style="margin-top:18px">Automatic snapshots on this device</h4>
+      <span id="rs-status" class="import-status"></span>`:""}
+      <h4 class="pc-lab" style="margin-top:18px">Missing leads</h4>
+      <p style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">Every lead ever entered is kept in a permanent ledger. Anything listed here exists in the ledger but is no longer in the live records — click to bring it back.</p>
+      <div id="rs-missing"><div class="empty" style="padding:14px"><b>Checking…</b></div></div>
+      ${isAdmin()?`<h4 class="pc-lab" style="margin-top:18px">Automatic snapshots on this device</h4>
       ${snaps.length?`<div>${snaps.map((s,i)=>`<div class="docrow">
         <div><div class="dl">${fmtDT(s.ts)}</div><div class="dm">${(s.db.partners||[]).length} partner(s) · ${(s.db.leads||[]).length} lead(s)${s.reason?" · "+esc(s.reason):""}</div></div>
         <button class="btn ghost sm" onclick="restoreSnapshot(${i})">Restore this</button>
-      </div>`).join("")}</div>`:`<div class="empty" style="padding:16px"><b>No snapshots on this device yet</b>A snapshot is kept automatically before incoming changes replace your data.</div>`}
+      </div>`).join("")}</div>`:`<div class="empty" style="padding:16px"><b>No snapshots on this device yet</b>A snapshot is kept automatically before incoming changes replace your data.</div>`}`:""}
     </div>
     <div class="modal-f"><button class="btn ghost" onclick="closeModal()">Close</button></div>
   </div>`);
+  renderMissingLeads();
+}
+async function missingLeads(){
+  const live=new Set((DB.leads||[]).map(l=>l.id));
+  const m=new Map();
+  (DB.ledger||[]).forEach(x=>{if(!live.has(x.id))m.set(x.id,x)});
+  (await ledgerLocal()).forEach(x=>{if(!live.has(x.id)&&!m.has(x.id))m.set(x.id,x)});
+  // a lead that was deliberately deleted is in the archive; flag it rather than hide it
+  const arch=new Set((DB.archive||[]).filter(a=>a.type==="lead").map(a=>(a.payload&&a.payload.id)||""));
+  return [...m.values()].map(x=>Object.assign({},x,{deleted:arch.has(x.id)})).sort((a,b)=>(b.ts||0)-(a.ts||0));
+}
+async function renderMissingLeads(){
+  const box=$("#rs-missing"); if(!box)return;
+  const list=await missingLeads();
+  if(!list.length){box.innerHTML=`<div class="empty" style="padding:14px"><b>Nothing missing</b>Every lead in the ledger is present in the live records.</div>`;return}
+  box.innerHTML=list.map(x=>`<div class="docrow">
+    <div><div class="dl">${esc(x.name||"(no name)")} ${x.ref?`<span style="color:var(--ink-soft)">· ${esc(x.ref)}</span>`:""}</div>
+      <div class="dm">Entered by ${esc(x.enteredBy||"—")}${x.partnerId?` · ${esc(partnerName(x.partnerId))}`:""} · last seen ${fmtDT(new Date(x.ts).toISOString())}${x.deleted?' · <span class="tag line">was deleted on purpose</span>':""}</div></div>
+    <button class="btn ${x.deleted?"ghost":"gold"} sm" onclick="restoreLead('${x.id}')">Restore</button>
+  </div>`).join("");
+}
+async function restoreLead(id){
+  if(!isStaff())return;
+  let snap=(DB.ledger||[]).find(x=>x.id===id);
+  if(!snap)snap=(await ledgerLocal()).find(x=>x.id===id);
+  if(!snap){alert("That lead is not in the ledger on this device.");return}
+  if((DB.leads||[]).some(l=>l.id===id)){toast("That lead is already in the records.");renderMissingLeads();return}
+  if(!confirm(`Restore the lead "${snap.name}"${snap.ref?` (${snap.ref})`:""}?\n\nIt will reappear in the live records exactly as it was last saved.`))return;
+  const lead=Object.assign({},snap.data);
+  if(!Array.isArray(lead.docs))lead.docs=[];
+  if(!Array.isArray(lead.comments))lead.comments=[];
+  if(!Array.isArray(lead.history))lead.history=[];
+  if(!Array.isArray(lead.installments))lead.installments=[];
+  if(!lead.dep)lead.dep={status:"none",amount:0,date:null};
+  DB.tombstones=(DB.tombstones||[]).filter(t=>t.id!==id);     // allow it to live again
+  DB.leads.push(lead);
+  lead._m=Date.now();
+  log(lead,`Lead restored from the permanent ledger by ${SESSION.name}.`);
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Lead restored from the ledger — ${lead.name} (${lead.ref||"no ref"}).`});
+  save();render();renderMissingLeads();toast("Lead restored.");
 }
 function applyRestore(obj,label){
   if(!obj||typeof obj!=="object"||!Array.isArray(obj.users)){alert("That file does not look like a Boran&Co CRM backup.");return false}
