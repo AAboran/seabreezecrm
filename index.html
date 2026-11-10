@@ -2266,6 +2266,7 @@ function openDrawer(id){
       <div class="sub">${esc(l.city)}, ${esc(l.country)} · attributed to ${esc(partnerName(l.partnerId))} · entered ${fmtDT(l.createdAt)}</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      ${isStaff()?`<button class="btn gold sm" onclick="leadCard('${l.id}')" title="Investor introduction sheet to send to the development">Lead card (PDF)</button>`:""}
       ${isStaff()?`<button class="btn ghost sm danger" onclick="softDeleteLead('${l.id}')" title="Move this lead to the deleted archive">🗑 Delete lead</button>`:""}
       <button class="dr-x" onclick="closeDrawer()">×</button>
     </div>
@@ -2485,7 +2486,7 @@ function frozenDrawer(l){
       <h3>${esc(l.name)}</h3>
       <div class="sub">${esc(l.city)}, ${esc(l.country)} · ${esc(partnerName(l.partnerId))}</div>
     </div>
-    <div style="display:flex;gap:8px;align-items:flex-start">${isAdmin()?`<button class="btn ghost sm danger" onclick="softDeleteLead('${l.id}')" title="Delete this closed &amp; settled lead">🗑 Delete</button>`:""}<button class="dr-x" onclick="closeDrawer()">×</button></div>
+    <div style="display:flex;gap:8px;align-items:flex-start">${isStaff()?`<button class="btn gold sm" onclick="leadCard('${l.id}')" title="Investor introduction sheet">Lead card (PDF)</button>`:""}${isAdmin()?`<button class="btn ghost sm danger" onclick="softDeleteLead('${l.id}')" title="Delete this closed &amp; settled lead">🗑 Delete</button>`:""}<button class="dr-x" onclick="closeDrawer()">×</button></div>
   </div>
   <div class="dr-body">
     <div class="frozen-hero">
@@ -3590,6 +3591,187 @@ function stmtClawback(id){
 const ARCH_LABEL={lead:"Lead",visit:"Departure",statement:"Statement",partner:"Partner company",campaign:"Market activation",user:"User account"};
 function archiveEntry(type,label,detail,payload){
   return {id:"AR"+Math.random().toString(36).slice(2,9),type,label,detail,payload,by:SESSION.name,ts:new Date().toISOString()};
+}
+/* ================= LEAD CARD (investor introduction sheet) =================
+   A print-ready, branded A4 sheet sent to the development so they can register
+   the investor. It deliberately carries NO partner identity and NO commission,
+   retention or division figures — the corridor rule stands. */
+function lcRow(label,value){
+  return `<tr><th>${esc(label)}</th><td>${value?esc(value):'<span class="lc-na">—</span>'}</td></tr>`;
+}
+function leadCardHTML(l){
+  const v=l.visitId?visit(l.visitId):null;
+  const today=new Date();
+  const dep=l.dep||{};
+  const depTxt=dep.status==="travel"?`Wired — allocated to the Baku visit${dep.amount?` (€ ${Number(dep.amount).toLocaleString("en-GB")})`:""}`
+            :dep.status==="refundable"?`Wired — refundable${dep.amount?` (€ ${Number(dep.amount).toLocaleString("en-GB")})`:""}`
+            :dep.status==="returned"?"Returned to the investor":"Not yet wired";
+  const visitTxt=v?`${esc(v.label||"")}${v.depart?` — departing ${fmtD(v.depart)}`:""}`:"Not yet booked";
+  const attTxt=l.visitStatus==="attended"?"Attended":l.visitStatus==="noshow"?"Did not travel":l.visitStatus==="rolled"?"Rolled to a later departure":"Pending";
+  const units=(l.shortlistItems&&l.shortlistItems.length)?l.shortlistItems.join(" · "):(l.shortlist||"");
+  const stageTxt=(STAGES[l.stage-1]&&STAGES[l.stage-1].t)||"";
+  const ref=l.ref||"";
+  const hasCommit=(dep.status&&dep.status!=="none")||l.visitId||l.visitStatus;
+  const hasDeal=l.resRef||l.contractRef||l.contractVal||(l.devReg&&l.devReg.status==="registered");
+  const registered=l.devReg&&l.devReg.status==="registered";
+  const early=!hasCommit&&!hasDeal;
+  const docTitle=registered?"Investor Introduction":"Investor Registration Request";
+  const lede=registered
+    ? "This sheet sets out a qualified investor sourced and prepared through the Boran&amp;Co corridor, together with the current position of the introduction. It is issued for your records."
+    : "We hereby introduce the investor set out below, sourced and qualified through the Boran&amp;Co corridor, and request that they be <b>registered against Boran&amp;Co s. r. o.</b> in your records. Please return the registration reference and date to us so that we may place them on file. The investor is being prepared for a commitment deposit and a site visit in Baku; those details will follow on a later sheet.";
+  let sec="C";
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>Lead card ${esc(ref)} — ${esc(l.name)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  @page{size:A4;margin:16mm 15mm 14mm}
+  *{box-sizing:border-box}
+  body{font-family:'Inter',system-ui,sans-serif;color:#24313B;margin:0;font-size:10.2pt;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet{max-width:180mm;margin:0 auto;padding:10mm 0}
+  header{display:flex;gap:13px;align-items:flex-start;border-bottom:1.6pt solid #C2A257;padding-bottom:9px}
+  header img{width:46px;height:46px;object-fit:contain}
+  .brand h1{font-family:'Cormorant Garamond',serif;font-size:19pt;color:#0B1D2E;margin:0;font-weight:700;letter-spacing:.01em}
+  .brand .dept{font-size:7.4pt;letter-spacing:.17em;color:#9A7B2E;font-weight:600;text-transform:uppercase;margin-top:2px}
+  .brand .sub{font-size:7.6pt;color:#5A6B78;margin-top:3px}
+  .meta{margin-left:auto;text-align:right;font-size:7.8pt;color:#5A6B78;line-height:1.7}
+  .meta b{color:#0B1D2E;font-size:8.6pt;letter-spacing:.06em}
+  h2.title{font-family:'Cormorant Garamond',serif;font-size:17pt;color:#0B1D2E;margin:16px 0 3px;font-weight:600}
+  .lede{font-size:8.9pt;color:#5A6B78;margin:0 0 15px;max-width:150mm}
+  .sec{margin-top:13px;break-inside:avoid}
+  .sec h3{font-size:7.8pt;letter-spacing:.15em;text-transform:uppercase;color:#FFFFFF;background:#0B1D2E;padding:4.5px 9px;margin:0 0 7px;font-weight:600}
+  table.kv{width:100%;border-collapse:collapse}
+  table.kv th{text-align:left;width:38%;font-weight:500;color:#5A6B78;padding:4.5px 9px 4.5px 0;vertical-align:top;font-size:9.2pt;border-bottom:.5pt solid #EDE8DC}
+  table.kv td{padding:4.5px 0;color:#24313B;font-weight:500;vertical-align:top;border-bottom:.5pt solid #EDE8DC;font-size:9.6pt}
+  table.kv tr:last-child th,table.kv tr:last-child td{border-bottom:none}
+  .lc-na{color:#A9B2BA}
+  .cols{display:flex;gap:16px}
+  .cols>div{flex:1;min-width:0}
+  .confid{margin-top:15px;background:#F6F2E9;border-left:2.6pt solid #C2A257;padding:8px 11px;font-size:8.1pt;color:#5A6B78;line-height:1.55}
+  .confid b{color:#0B1D2E}
+  .sign{display:flex;gap:16px;margin-top:16px;break-inside:avoid}
+  .sign>div{flex:1}
+  .sign .lab{font-size:7.4pt;letter-spacing:.13em;text-transform:uppercase;color:#9A7B2E;font-weight:600;margin-bottom:3px}
+  .sign .who{font-size:9pt;color:#24313B;font-weight:500}
+  .sign .ln{border-bottom:.7pt solid #9AA6AE;height:30px;margin-top:5px}
+  .sign .cap{font-size:7.4pt;color:#5A6B78;margin-top:3px}
+  footer{margin-top:16px;border-top:.6pt solid #D8D2C4;padding-top:7px;font-size:7.2pt;color:#8C97A0;text-align:center;line-height:1.6}
+  .noprint{margin:14px auto;max-width:180mm;text-align:right}
+  .noprint button{font-family:'Inter',sans-serif;background:#0B1D2E;color:#F6F2E9;border:none;padding:9px 20px;font-size:9.5pt;letter-spacing:.06em;cursor:pointer;border-radius:2px}
+  .noprint span{font-size:8.6pt;color:#5A6B78;margin-right:12px}
+  @media print{.noprint{display:none}body{font-size:10pt}}
+</style></head><body>
+<div class="noprint"><span>Choose “Save as PDF” as the destination.</span><button onclick="window.print()">Save as PDF / Print</button></div>
+<div class="sheet">
+  <header>
+    <img src="icon-512.png" alt="">
+    <div class="brand">
+      <h1>Boran&amp;Co s. r. o.</h1>
+      <div class="dept">Construction and Development Department</div>
+      <div class="sub">Sea Breeze Corridor · Central Europe</div>
+    </div>
+    <div class="meta"><b>${esc(ref)}</b><br>Issued ${fmtD(today.toISOString())}<br>Prepared by ${esc(SESSION?SESSION.name:"")}</div>
+  </header>
+
+  <h2 class="title">${docTitle}</h2>
+  <p class="lede">${lede}</p>
+
+  <div class="sec"><h3>A · Investor</h3>
+    <div class="cols">
+      <div><table class="kv">
+        ${lcRow("Full name",l.name)}
+        ${lcRow("Company / entity",l.entity)}
+        ${lcRow("City",l.city)}
+        ${lcRow("Country",l.country)}
+      </table></div>
+      <div><table class="kv">
+        ${lcRow("E-mail",l.email)}
+        ${lcRow("Telephone",l.phone)}
+        ${lcRow("First contact",l.firstContact?fmtD(l.firstContact):"")}
+        ${lcRow("Introduced on",l.createdAt?fmtD(l.createdAt):"")}
+      </table></div>
+    </div>
+  </div>
+
+  <div class="sec"><h3>B · Requirement</h3>
+    <div class="cols">
+      <div><table class="kv">
+        ${lcRow("Budget",l.budget)}
+        ${lcRow("Unit type",l.unit)}
+      </table></div>
+      <div><table class="kv">
+        ${lcRow("Purpose",l.intent)}
+        ${lcRow("Timeline",l.timeline)}
+      </table></div>
+    </div>
+    <table class="kv" style="margin-top:2px">${lcRow("Units shortlisted",units)}</table>
+  </div>
+
+  ${hasCommit?`<div class="sec"><h3>${sec++} · Commitment and site visit</h3>
+    <div class="cols">
+      <div><table class="kv">
+        ${lcRow("Commitment deposit",depTxt)}
+        ${lcRow("Deposit received",dep.date?fmtD(dep.date):"")}
+      </table></div>
+      <div><table class="kv">
+        ${lcRow("Baku departure",visitTxt)}
+        ${lcRow("Attendance",attTxt)}
+      </table></div>
+    </div>
+  </div>`:""}
+
+  ${hasDeal?`<div class="sec"><h3>${sec++} · Reservation and contract</h3>
+    <div class="cols">
+      <div><table class="kv">
+        ${lcRow("Reservation reference",l.resRef)}
+        ${lcRow("Registration status",(l.devReg&&l.devReg.status==="registered")?`Registered${l.devReg.date?` on ${fmtD(l.devReg.date)}`:""}`:"Awaiting registration")}
+      </table></div>
+      <div><table class="kv">
+        ${lcRow("Purchase contract",l.contractRef)}
+        ${lcRow("Contract value",l.contractVal?`€ ${Number(l.contractVal).toLocaleString("en-GB")}`:"")}
+      </table></div>
+    </div>
+  </div>`:""}
+  ${early?`<div class="sec"><h3>C · What we ask of you</h3>
+    <table class="kv">
+      <tr><th>Action requested</th><td>Register the investor above against Boran&amp;Co s. r. o.</td></tr>
+      <tr><th>To be returned</th><td>Developer registration reference and date of registration</td></tr>
+      <tr><th>Introduction stage</th><td>${esc(stageTxt)}</td></tr>
+      <tr><th>To follow from us</th><td>Commitment deposit, Baku site visit and reservation details</td></tr>
+    </table>
+  </div>`:`<table class="kv" style="margin-top:9px">${lcRow("Introduction stage",stageTxt)}</table>`}
+
+  <div class="confid">
+    <b>Confidential.</b> This sheet is issued solely for the registration of the named investor with the development. The investor was sourced, qualified and prepared by Boran&amp;Co s. r. o., which remains the sole channel for all communication, documentation and settlement relating to this introduction. It may not be forwarded, copied or acted upon by any third party without our written consent.
+  </div>
+
+  <div class="sign">
+    <div>
+      <div class="lab">Issued by</div>
+      <div class="who">${esc(SESSION?SESSION.name:"")} — Boran&amp;Co s. r. o.</div>
+      <div class="ln"></div>
+      <div class="cap">Signature and date</div>
+    </div>
+    <div>
+      <div class="lab">Recorded by the development</div>
+      <div class="who">Name, position and registration reference</div>
+      <div class="ln"></div>
+      <div class="cap">Signature and date</div>
+    </div>
+  </div>
+
+  <footer>Boran&amp;Co s. r. o. &nbsp;·&nbsp; Štefánikova 879/5, 811 06 Bratislava, Slovak Republic &nbsp;·&nbsp; office@boranco.eu &nbsp;·&nbsp; IČO 53596145 &nbsp;·&nbsp; DIČ 2121418255</footer>
+</div>
+</body></html>`;
+}
+function leadCard(id){
+  if(!isStaff())return;
+  const l=lead(id); if(!l)return;
+  const w=window.open("","_blank");
+  if(!w){alert("Your browser blocked the new window. Please allow pop-ups for this site and try again.");return}
+  w.document.open(); w.document.write(leadCardHTML(l)); w.document.close();
+  DB.audit.unshift({ts:new Date().toISOString(),user:SESSION.name,text:`Lead card produced for ${l.name} (${l.ref||"no ref"}).`});
+  save();
 }
 function softDeleteLead(id){
   const l=lead(id);if(!l)return;
